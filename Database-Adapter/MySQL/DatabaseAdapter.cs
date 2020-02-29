@@ -6,7 +6,7 @@ using System.Data;
 using System.Linq;
 using System.Text;
 
-namespace Database
+namespace Database.MySQL
 {
 	/// <summary>
 	/// Abstract class that must be implemented to set up a MySQL database.
@@ -268,7 +268,7 @@ namespace Database
 		/// Inserts an object into this database.
 		/// </summary>
 		/// <typeparam name="T">A type extending <see cref="ItemAdapter"/>.</typeparam>
-		/// <param name="items">The object to insert into the database.</param>
+		/// <param name="item">The object to insert into the database.</param>
 		/// <param name="discardIndex">If true, will skip getting and assigning the last insert id to the item.</param>
 		/// <returns>If the table has an auto increment column, the id of the inserted item. Otherwise -1.</returns>
 		public long Insert<T>(T item, bool discardIndex = false) where T : ItemAdapter
