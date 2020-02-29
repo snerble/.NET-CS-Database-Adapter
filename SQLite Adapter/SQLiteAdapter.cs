@@ -1,25 +1,22 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data;
 using System.Data.SQLite;
-using System.IO;
 using System.Linq;
-using System.Text;
 
 namespace Database.SQLite
 {
-	public class DbAdapter : IDbAdapter
+	public class SQLiteAdapter : IDbAdapter
 	{
 		/// <summary>
-		/// The <see cref="SQLiteConnection"/> used by this <see cref="DbAdapter"/>.
+		/// The <see cref="SQLiteConnection"/> used by this <see cref="SQLiteAdapter"/>.
 		/// </summary>
 		public readonly SQLiteConnection Connection;
 
 		/// <summary>
-		/// Initializes a new instance of <see cref="DbAdapter"/>.
+		/// Initializes a new instance of <see cref="SQLiteAdapter"/>.
 		/// </summary>
 		/// <param name="datasource">The path to the database file to use.</param>
-		public DbAdapter(string datasource)
+		public SQLiteAdapter(string datasource)
 		{
 			if (datasource is null) throw new ArgumentNullException(nameof(datasource));
 

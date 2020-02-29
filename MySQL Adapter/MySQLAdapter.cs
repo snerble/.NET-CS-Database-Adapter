@@ -11,7 +11,7 @@ namespace Database.MySQL
 	/// <summary>
 	/// Abstract class that must be implemented to set up a MySQL database.
 	/// </summary>
-	public abstract class DatabaseAdapter : IDisposable
+	public abstract class MySQLAdapter : IDisposable
 	{
 		/// <summary>
 		/// The <see cref="MySqlConnection"/> instance used by this adapter.
@@ -419,7 +419,7 @@ namespace Database.MySQL
 		#endregion
 
 		/// <summary>
-		/// Disposes the resources used by this <see cref="DatabaseAdapter"/>.
+		/// Disposes the resources used by this <see cref="MySQLAdapter"/>.
 		/// </summary>
 		public void Dispose()
 		{

@@ -3,7 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.29728.190
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Database-Adapter", "Database-Adapter\Database-Adapter.csproj", "{A7117583-46CB-4F3B-B9E6-893597B6CD3C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Core", "Database-Adapter\Core.csproj", "{A7117583-46CB-4F3B-B9E6-893597B6CD3C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MySQL Adapter", "MySQL Adapter\MySQL Adapter.csproj", "{B1DE5CE8-5B89-43AB-B30E-5E10C4FC362E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SQLite Adapter", "SQLite Adapter\SQLite Adapter.csproj", "{E4D0FE65-56DC-4BF0-BA98-BBA9194994D7}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +19,14 @@ Global
 		{A7117583-46CB-4F3B-B9E6-893597B6CD3C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A7117583-46CB-4F3B-B9E6-893597B6CD3C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A7117583-46CB-4F3B-B9E6-893597B6CD3C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1DE5CE8-5B89-43AB-B30E-5E10C4FC362E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1DE5CE8-5B89-43AB-B30E-5E10C4FC362E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1DE5CE8-5B89-43AB-B30E-5E10C4FC362E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1DE5CE8-5B89-43AB-B30E-5E10C4FC362E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E4D0FE65-56DC-4BF0-BA98-BBA9194994D7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E4D0FE65-56DC-4BF0-BA98-BBA9194994D7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E4D0FE65-56DC-4BF0-BA98-BBA9194994D7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E4D0FE65-56DC-4BF0-BA98-BBA9194994D7}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
