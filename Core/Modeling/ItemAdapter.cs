@@ -95,8 +95,8 @@ namespace Database.Modeling
 		}
 
 		[IgnoreProperty]
-		internal bool IsChanged => clone == null ? false : !Equals(clone);
-		internal ItemAdapter clone = null;
+		public bool IsChanged => clone == null ? false : !Equals(clone);
+		public ItemAdapter clone = null;
 		/// <summary>
 		/// Stores a clone of this instance internally for use in the update methods of <see cref="DatabaseAdapter"/>.
 		/// This will overwrite the current cache.

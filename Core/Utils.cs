@@ -9,7 +9,7 @@ namespace Database
 	/// <summary>
 	/// Package-only class containing various utilities used in the Modeling namespace
 	/// </summary>
-	static class Utils
+	public static class Utils
 	{
 		/// <summary>
 		/// Simple dictionary that maps a C# type to a MySqlDbType. Used for automatic typing for queries.
@@ -53,7 +53,7 @@ namespace Database
 		/// <summary>
 		/// Returns the table name of the specified data model, or the data model type name if no name is specified.
 		/// </summary>
-		public static string GetTableName<T>() where T : ItemAdapter => GetTableName(typeof(T));
+		public static string GetTableName<T>() => GetTableName(typeof(T));
 		/// <summary>
 		/// Returns the table name of the specified data model, or the data model type name if no name is specified.
 		/// </summary>
@@ -66,7 +66,7 @@ namespace Database
 		/// </summary>
 		/// <typeparam name="T">A type extending <see cref="ItemAdapter"/>.</typeparam>
 		/// <typeparam name="A">A type extending <see cref="Attribute"/>.</typeparam>
-		public static IEnumerable<PropertyInfo> GetColumns<T, A>() where T : ItemAdapter where A : Attribute
+		public static IEnumerable<PropertyInfo> GetColumns<T, A>() where A : Attribute
 			=> GetColumns<A>(GetAllColumns<T>());
 		/// <summary>
 		/// Returns all columns/properties from the specified collection with the specified attriute <typeparamref name="A"/>.
@@ -85,7 +85,7 @@ namespace Database
 		/// <summary>
 		/// Returns an <see cref="IEnumerable{T}"/> of <see cref="PropertyInfo"/>s of the specified data model.
 		/// </summary>
-		public static IEnumerable<PropertyInfo> GetAllColumns<T>() where T : ItemAdapter
+		public static IEnumerable<PropertyInfo> GetAllColumns<T>()
 			=> GetAllColumns(typeof(T));
 		/// <summary>
 		/// Returns an <see cref="IEnumerable{T}"/> containing <see cref="PropertyInfo"/> instances
