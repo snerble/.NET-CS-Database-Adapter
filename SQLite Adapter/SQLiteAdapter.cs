@@ -39,7 +39,28 @@ namespace Database.SQLite
 
 		public int Insert<T>(T item)
 		{
-			throw new NotImplementedException();
+			// Get all properties that will represent columns
+			var columns = Utils.GetAllColumns<T>().ToArray();
+
+			using var command = Connection.CreateCommand();
+
+			// Build segments of the final query using string joining
+			string fieldsText = string.Join(", ", columns.Select(x => x.Name));
+			string parametersText = string.Join(", ", columns.Select(x => "@" + x.Name));
+
+			// TODO: Use StringBuilders. (Or not, I don't know what is more efficient)
+			// Construct the final query using the type's table name, column list and parameters. 
+			command.CommandText = $"INSERT INTO `{Utils.GetTableName<T>()}` ({fieldsText}) VALUES({parametersText}); ";
+
+			// Construct a parameter object for each value
+			foreach (var property in columns)
+				command.Parameters.AddWithValue('@' + property.Name, property.GetValue(item) ?? DBNull.Value);
+
+			// TODO: Implement the Insert overload that takes a collection instead.
+			command.ExecuteNonQuery();
+
+			// Retrieve the last inserted id with a new query
+			return (int)(long) new SQLiteCommand(Connection) { CommandText = "SELECT LAST_INSERT_ROWID()" }.ExecuteScalar();
 		}
 		public int Insert<T>(ICollection<T> items)
 		{
