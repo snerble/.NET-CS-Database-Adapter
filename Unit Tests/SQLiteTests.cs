@@ -1,3 +1,4 @@
+using Database.Modeling;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Diagnostics;
 using System.IO;
@@ -55,5 +56,18 @@ namespace Database.SQLite
 			);";
 			command.ExecuteNonQuery();
 		}
+
+		[TestMethod]
+		public void InsertValue()
+		{
+			Trace.WriteLine(Database.Insert(new TestObject() { text_field = "yay testing yeet" }));
+		}
+	}
+
+	[Table("test")]
+	public class TestObject
+	{
+		public int? id { get; set; }
+		public string text_field { get; set; }
 	}
 }
