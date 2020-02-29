@@ -8,11 +8,6 @@ namespace Database
 	/// </summary>
 	public interface IDbAdapter
 	{
-		/// <summary>
-		/// Gets the <see cref="IDbConnection"/> used by this <see cref="IDbAdapter"/>.
-		/// </summary>
-		public abstract IDbConnection Connection { get; }
-
 		/* All these generic types must be creatable, so check it with this.
 		 *	if(classType.GetConstructor(Type.EmptyTypes) != null && !classType.IsAbstract)
 		 *	{
@@ -49,27 +44,27 @@ namespace Database
 		public int Insert<T>(ICollection<T> items);
 
 		/// <summary>
+		/// Updates the specified object in the database.
+		/// </summary>
+		/// <typeparam name="T">The type of the object to update in the database.</typeparam>
+		/// <param name="item">The object to update in the database.</param>
+		/// <returns>The number of affected rows.</returns>
+		public int Update<T>(T item);
+		/// <summary>
 		/// Updates all elements matching the given conditon with the specified object.
 		/// </summary>
 		/// <typeparam name="T">The type of the objects to update in the database.</typeparam>
 		/// <param name="item">The object to update all matched elements with in the database.</param>
 		/// <param name="condition">A condition that matches all elements that will be updated.</param>
 		/// <returns>The number of affected rows.</returns>
-		public long Update<T>(T item, string condition);
-		/// <summary>
-		/// Updates the specified object in the database.
-		/// </summary>
-		/// <typeparam name="T">The type of the object to update in the database.</typeparam>
-		/// <param name="item">The object to update in the database.</param>
-		/// <returns>The number of affected rows.</returns>
-		public long Update<T>(T item);
+		public int Update<T>(T item, string condition);
 		/// <summary>
 		/// Updates the collection of objects in the database.
 		/// </summary>
 		/// <typeparam name="T">The type of the objects to update in the database.</typeparam>
 		/// <param name="items">The collection of items to update in the database.</param>
 		/// <returns>The number of affected rows.</returns>
-		public long Update<T>(ICollection<T> items);
+		public int Update<T>(ICollection<T> items);
 
 		/// <summary>
 		/// Deletes all objects their database table that match the specified condition.
