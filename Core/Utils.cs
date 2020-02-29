@@ -9,7 +9,7 @@ namespace Database
 	/// <summary>
 	/// Package-only class containing various utilities used in the Modeling namespace
 	/// </summary>
-	protected static class Utils
+	static class Utils
 	{
 		/// <summary>
 		/// Simple dictionary that maps a C# type to a MySqlDbType. Used for automatic typing for queries.
