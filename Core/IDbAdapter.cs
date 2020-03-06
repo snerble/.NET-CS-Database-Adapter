@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Data;
 
 namespace Database
@@ -6,7 +7,7 @@ namespace Database
 	/// <summary>
 	/// Represents a wrapper for communicating with an <see cref="IDbConnection"/>.
 	/// </summary>
-	public interface IDbAdapter
+	public interface IDbAdapter : IDisposable
 	{
 		/* All these generic types must be creatable, so check it with this.
 		 *	if(classType.GetConstructor(Type.EmptyTypes) != null && !classType.IsAbstract)
@@ -19,14 +20,15 @@ namespace Database
 		/// Returns all entries of the given object in an <see cref="IEnumerable{T}"/>.
 		/// </summary>
 		/// <typeparam name="T">The type of the object to select from the database.</typeparam>
-		public IEnumerable<T> Select<T>();
+		public IEnumerable<T> Select<T>() where T : new();
 		/// <summary>
 		/// Returns all entries of the given object that match the given condition
 		/// in an <see cref="IEnumerable{T}"/>.
 		/// </summary>
 		/// <typeparam name="T">The type of the object to select from the database.</typeparam>
 		/// <param name="condition">The condition to test all selected elements against.</param>
-		public IEnumerable<T> Select<T>(string condition);
+		public IEnumerable<T> Select<T>(string condition) where T : new();
+		// TODO: Add additional Select methods to allow the use of types without a parameterless constructor
 
 		/// <summary>
 		/// Inserts an object into the database.
@@ -87,10 +89,5 @@ namespace Database
 		/// <param name="items">The collection of items to delete from the database.</param>
 		/// <returns>The number of affected rows.</returns>
 		public int Delete<T>(ICollection<T> items);
-
-		/// <summary>
-		/// Releases all resources held by this <see cref="IDbAdapter"/>.
-		/// </summary>
-		public void Dispose();
 	}
 }
