@@ -9,7 +9,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MySQL Adapter", "MySQL Adap
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SQLite Adapter", "SQLite Adapter\SQLite Adapter.csproj", "{E4D0FE65-56DC-4BF0-BA98-BBA9194994D7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unit Tests", "Unit Tests\Unit Tests.csproj", "{42E278B9-1A6C-49E8-9D45-D1089F2E71C3}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Unit Tests", "Unit Tests\Unit Tests.csproj", "{42E278B9-1A6C-49E8-9D45-D1089F2E71C3}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
