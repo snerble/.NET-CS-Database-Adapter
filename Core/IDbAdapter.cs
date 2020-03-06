@@ -1,21 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data;
 
 namespace Database
 {
 	/// <summary>
-	/// Represents a wrapper for communicating with an <see cref="IDbConnection"/>.
+	/// Represents a wrapper for communicating with a data source.
 	/// </summary>
 	public interface IDbAdapter : IDisposable
 	{
-		/* All these generic types must be creatable, so check it with this.
-		 *	if(classType.GetConstructor(Type.EmptyTypes) != null && !classType.IsAbstract)
-		 *	{
-		 *		//this type is constructable with default constructor
-		 *	}
-		 */
-
 		/// <summary>
 		/// Returns all entries of the given object in an <see cref="IEnumerable{T}"/>.
 		/// </summary>
