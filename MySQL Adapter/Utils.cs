@@ -1,15 +1,15 @@
 ﻿using MySql.Data.MySqlClient;
-using Database.Modeling;
+using Database.MySQL.Modeling;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
 
-namespace Database
+namespace Database.MySQL
 {
 	/// <summary>
-	/// Package-only class containing various utilities used in the Modeling namespace
+	/// Package-only class containing various utilities used in the MySQL.Modeling namespace
 	/// </summary>
-	public static class Utils
+	static class Utils
 	{
 		/// <summary>
 		/// Simple dictionary that maps a C# type to a MySqlDbType. Used for automatic typing for queries.
@@ -92,12 +92,17 @@ namespace Database
 		/// of the specified type extending <see cref="ItemAdapter"/>.
 		/// </summary>
 		/// <param name="t">The type of a class extending <see cref="ItemAdapter"/>.</param>
+		/// <remarks>
+		/// Virtual properties are ignored.
+		/// </remarks>
 		public static IEnumerable<PropertyInfo> GetAllColumns(Type t)
 		{
 			// Yield all properties not marked with IgnorePropertyAttribute
 			foreach (var property in t.GetProperties())
-				if (property.GetCustomAttribute<IgnorePropertyAttribute>() == null)
+			{
+				if (!(property.GetGetMethod()?.IsVirtual ?? false) && !(property.GetSetMethod()?.IsVirtual ?? false))
 					yield return property;
+			}
 		}
 	}
 }

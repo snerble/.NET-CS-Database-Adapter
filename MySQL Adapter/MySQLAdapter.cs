@@ -1,5 +1,5 @@
 ﻿using MySql.Data.MySqlClient;
-using Database.Modeling;
+using Database.MySQL.Modeling;
 using System;
 using System.Collections.Generic;
 using System.Data;
