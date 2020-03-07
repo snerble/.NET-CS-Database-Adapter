@@ -111,7 +111,7 @@ namespace Database.SQLite
 			// Retrieve the items again
 			var items = Database.Select<TestModel>().ToList();
 
-			Assert.AreEqual(items.Count, newItems.Length,
+			Assert.AreEqual(newItems.Length, items.Count,
 				$"The SELECT query did not return the expected amount of elements.");
 		}
 
@@ -136,7 +136,7 @@ namespace Database.SQLite
 			int deletedCount = Database.Delete<TestModel>("`TextField` = 'DeleteTest'");
 
 			// Check if the query deleted the correct amount of elements
-			Assert.AreEqual(deletedCount, newItems.Length, $"The query did not delete the correct amount of elements.");
+			Assert.AreEqual(newItems.Length, deletedCount, $"The query did not delete the correct amount of elements.");
 		}
 
 		[TestMethod]
@@ -166,7 +166,7 @@ namespace Database.SQLite
 			Trace.WriteLine(updatedCount);
 
 			// Check if the correct amount of rows were affected
-			Assert.AreEqual(updatedCount, newItems.Length, $"The query did not update the correct amount of elements.");
+			Assert.AreEqual(newItems.Length, updatedCount, $"The query did not update the correct amount of elements.");
 		}
 	}
 }
