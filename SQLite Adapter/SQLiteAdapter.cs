@@ -67,11 +67,7 @@ namespace Database.SQLite
 			foreach (var column in columns)
 			{
 				// Omit the comma for the first entry
-				if (!first)
-				{
-					sb.Append(",\n");
-					first = false;
-				}
+				if (!first) sb.Append(",\n");
 
 				sb.Append('\t');
 				// TODO: Implement overwritable column data
@@ -138,43 +134,48 @@ namespace Database.SQLite
 			return affected_rows;
 		}
 
-		public int Insert<T>(T item)
-		{
-			// Get all properties that will represent columns
-			var columns = Utils.GetProperties<T>().ToArray();
-
-			using var command = Connection.CreateCommand();
-
-			// Build segments of the final query using string joining
-			string fieldsText = string.Join(", ", columns.Select(x => x.Name));
-			string parametersText = string.Join(", ", columns.Select(x => "@" + x.Name));
-
-			// TODO: Use StringBuilders. (Or not, I don't know what is more efficient)
-			// Construct the final query using the type's table name, column list and parameters. 
-			command.CommandText = $"INSERT INTO `{Utils.GetTableName<T>()}` ({fieldsText}) VALUES({parametersText}); ";
-
-			// Construct a parameter object for each value
-			// TODO: Add special case for enums
-			foreach (var property in columns)
-				command.Parameters.AddWithValue('@' + property.Name, property.GetValue(item) ?? DBNull.Value);
-
-			// TODO: Implement the Insert overload that takes a collection instead.
-			command.ExecuteNonQuery();
-
-			// Retrieve the last inserted id with a new query
-			using var scalarCommand = new SQLiteCommand(Connection) { CommandText = "SELECT LAST_INSERT_ROWID()" };
-			return (int)(long) scalarCommand.ExecuteScalar();
-		}
+		public int Insert<T>(T item) => Insert<T>(new T[] { item });
 		public int Insert<T>(ICollection<T> items)
 		{
-			// TODO: Create one big query instead of many small ones
 			if (items.Count == 0) return -1;
 
-			// Get and return the first auto increment id and update the remaining items.
-			int scalar = Insert(items.First());
-			foreach (var item in items.Skip(1))
-				Insert(item);
-			return scalar;
+			var properties = Utils.GetProperties<T>();
+			using var command = Connection.CreateCommand();
+
+			var sb = new StringBuilder("INSERT INTO `");
+			sb.Append(Utils.GetTableName<T>());
+			sb.Append("`(");
+			// Join all column names with commas in between
+			sb.Append(string.Join(',', properties.Select(x => x.Name)));
+			sb.Append(")VALUES"); // TODO: Remove query indentation (not just here)
+
+			// Build the parameter section for every given element.
+			int i = 0;
+			foreach (var item in items)
+			{
+				if (i != 0) sb.Append(',');
+				sb.Append('(');
+				
+				// Append the column parameter names and simultaneously create the SQLiteParameter objects
+				sb.Append(string.Join(',', properties.Select((x, j) =>
+				{
+					var value = x.GetValue(item);
+					if (value == null) return "NULL";
+					var paramName = $"@{j}_{i}";
+					command.Parameters.Add(new SQLiteParameter(paramName, value));
+					return paramName;
+				})));
+
+				sb.Append(')');
+				++i;
+			}
+			sb.Append(';');
+			// Append another query for getting the last insert id
+			sb.Append("SELECT LAST_INSERT_ROWID();");
+
+			// Execute the command and return the scalar (first element)
+			command.CommandText = sb.ToString();
+			return (int)(long)command.ExecuteScalar();
 		}
 
 		public IEnumerable<T> Select<T>() where T : new() => Select<T>("1");
