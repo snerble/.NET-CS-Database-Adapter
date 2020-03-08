@@ -1,15 +1,15 @@
 ﻿using MySql.Data.MySqlClient;
-using Database.Modeling;
+using Database.MySQL.Modeling;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
 
-namespace Database
+namespace Database.MySQL
 {
 	/// <summary>
-	/// Package-only class containing various utilities used in the Modeling namespace
+	/// Package-only class containing various utilities used in the MySQL.Modeling namespace
 	/// </summary>
-	protected static class Utils
+	static class Utils
 	{
 		/// <summary>
 		/// Simple dictionary that maps a C# type to a MySqlDbType. Used for automatic typing for queries.
@@ -53,7 +53,7 @@ namespace Database
 		/// <summary>
 		/// Returns the table name of the specified data model, or the data model type name if no name is specified.
 		/// </summary>
-		public static string GetTableName<T>() where T : ItemAdapter => GetTableName(typeof(T));
+		public static string GetTableName<T>() => GetTableName(typeof(T));
 		/// <summary>
 		/// Returns the table name of the specified data model, or the data model type name if no name is specified.
 		/// </summary>
@@ -66,7 +66,7 @@ namespace Database
 		/// </summary>
 		/// <typeparam name="T">A type extending <see cref="ItemAdapter"/>.</typeparam>
 		/// <typeparam name="A">A type extending <see cref="Attribute"/>.</typeparam>
-		public static IEnumerable<PropertyInfo> GetColumns<T, A>() where T : ItemAdapter where A : Attribute
+		public static IEnumerable<PropertyInfo> GetColumns<T, A>() where A : Attribute
 			=> GetColumns<A>(GetAllColumns<T>());
 		/// <summary>
 		/// Returns all columns/properties from the specified collection with the specified attriute <typeparamref name="A"/>.
@@ -85,19 +85,24 @@ namespace Database
 		/// <summary>
 		/// Returns an <see cref="IEnumerable{T}"/> of <see cref="PropertyInfo"/>s of the specified data model.
 		/// </summary>
-		public static IEnumerable<PropertyInfo> GetAllColumns<T>() where T : ItemAdapter
+		public static IEnumerable<PropertyInfo> GetAllColumns<T>()
 			=> GetAllColumns(typeof(T));
 		/// <summary>
 		/// Returns an <see cref="IEnumerable{T}"/> containing <see cref="PropertyInfo"/> instances
 		/// of the specified type extending <see cref="ItemAdapter"/>.
 		/// </summary>
 		/// <param name="t">The type of a class extending <see cref="ItemAdapter"/>.</param>
+		/// <remarks>
+		/// Virtual properties are ignored.
+		/// </remarks>
 		public static IEnumerable<PropertyInfo> GetAllColumns(Type t)
 		{
 			// Yield all properties not marked with IgnorePropertyAttribute
 			foreach (var property in t.GetProperties())
-				if (property.GetCustomAttribute<IgnorePropertyAttribute>() == null)
+			{
+				if (!(property.GetGetMethod()?.IsVirtual ?? false) && !(property.GetSetMethod()?.IsVirtual ?? false))
 					yield return property;
+			}
 		}
 	}
 }

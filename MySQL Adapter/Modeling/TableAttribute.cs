@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Database.Modeling
+namespace Database.MySQL.Modeling
 {
 	/// <summary>
 	/// Specifies the metadata of a database table. This class cannot be inherited.

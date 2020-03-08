@@ -1,7 +1,7 @@
 ﻿using System;
 using MySql.Data.MySqlClient;
 
-namespace Database.Modeling
+namespace Database.MySQL.Modeling
 {
 	/// <summary>
 	/// Specifies the metadata of a database column,

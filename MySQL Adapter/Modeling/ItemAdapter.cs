@@ -4,7 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 
-namespace Database.Modeling
+namespace Database.MySQL.Modeling
 {
 	/// <summary>
 	/// Abstract class for modeling a MySQL table item into an object.
@@ -94,9 +94,8 @@ namespace Database.Modeling
 			return GetType().Name.CompareTo(other.GetType().Name);
 		}
 
-		[IgnoreProperty]
-		internal bool IsChanged => clone == null ? false : !Equals(clone);
-		internal ItemAdapter clone = null;
+		public virtual bool IsChanged => clone == null ? false : !Equals(clone);
+		public ItemAdapter clone = null;
 		/// <summary>
 		/// Stores a clone of this instance internally for use in the update methods of <see cref="DatabaseAdapter"/>.
 		/// This will overwrite the current cache.

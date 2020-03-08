@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Database.Modeling
+namespace Database.MySQL.Modeling
 {
 	/// <summary>
 	/// Marks a column of a database table model as PRIMARY.
