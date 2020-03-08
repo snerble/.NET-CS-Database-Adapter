@@ -1,8 +1,12 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netcoreapp3.1</TargetFramework>
     <RootNamespace>Database.SQLite</RootNamespace>
+    <Version>0.1.1</Version>
+    <Authors>Conor Groenenberg</Authors>
+    <RepositoryUrl>https://github.com/Snerble/.NET-CS-Database-Adapter</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <ItemGroup>
