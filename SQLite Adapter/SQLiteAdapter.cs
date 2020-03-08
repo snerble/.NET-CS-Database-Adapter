@@ -71,7 +71,7 @@ namespace Database.SQLite
 
 			// Build the entire query
 			var sb = new StringBuilder("CREATE TABLE ");
-			sb.Append(type.Name);
+			sb.Append(Utils.GetTableName(type));
 			sb.Append(" (");
 
 			// Build the columns
