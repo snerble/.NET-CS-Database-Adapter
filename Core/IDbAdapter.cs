@@ -9,18 +9,16 @@ namespace Database
 	public interface IDbAdapter : IDisposable
 	{
 		/// <summary>
-		/// Returns all entries of the given object in an <see cref="IEnumerable{T}"/>.
+		/// Returns all entries of the given type.
 		/// </summary>
 		/// <typeparam name="T">The type of the object to select from the database.</typeparam>
 		public IEnumerable<T> Select<T>() where T : new();
 		/// <summary>
-		/// Returns all entries of the given object that match the given condition
-		/// in an <see cref="IEnumerable{T}"/>.
+		/// Returns all entries of the given type that match the <paramref name="condition"/>.
 		/// </summary>
 		/// <typeparam name="T">The type of the object to select from the database.</typeparam>
 		/// <param name="condition">The condition to test all selected elements against.</param>
 		public IEnumerable<T> Select<T>(string condition) where T : new();
-		// TODO: Add additional Select methods to allow the use of types without a parameterless constructor
 
 		/// <summary>
 		/// Inserts an object into the database.
@@ -28,14 +26,14 @@ namespace Database
 		/// <typeparam name="T">The type of the object to insert into the database.</typeparam>
 		/// <param name="item">The object to insert into the database.</param>
 		/// <returns>If the table has an auto increment column, returns the id of the inserted item. Otherwise -1.</returns>
-		public int Insert<T>(T item);
+		public long Insert<T>(T item);
 		/// <summary>
-		/// Inserts the collection of objects into this database.
+		/// Inserts a collection of objects into this database.
 		/// </summary>
 		/// <typeparam name="T">The type of the objects to insert into the database.</typeparam>
 		/// <param name="items">The objects to insert into the database.</param>
 		/// <returns>If the table has an auto increment column, returns the id of the first inserted item. Otherwise -1.</returns>
-		public int Insert<T>(ICollection<T> items);
+		public long Insert<T>(ICollection<T> items);
 
 		/// <summary>
 		/// Updates the specified object in the database.
@@ -45,15 +43,7 @@ namespace Database
 		/// <returns>The number of affected rows.</returns>
 		public int Update<T>(T item);
 		/// <summary>
-		/// Updates all elements matching the given conditon with the specified object.
-		/// </summary>
-		/// <typeparam name="T">The type of the objects to update in the database.</typeparam>
-		/// <param name="item">The object to update all matched elements with in the database.</param>
-		/// <param name="condition">A condition that matches all elements that will be updated.</param>
-		/// <returns>The number of affected rows.</returns>
-		public int Update<T>(T item, string condition);
-		/// <summary>
-		/// Updates the collection of objects in the database.
+		/// Updates a collection of objects in the database.
 		/// </summary>
 		/// <typeparam name="T">The type of the objects to update in the database.</typeparam>
 		/// <param name="items">The collection of items to update in the database.</param>
