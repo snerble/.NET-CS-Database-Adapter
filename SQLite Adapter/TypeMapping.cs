@@ -71,7 +71,14 @@ namespace Database.SQLite
 		/// </summary>
 		/// <param name="type">The type to get the equivalent SQLite type from.</param>
 		/// <exception cref="KeyNotFoundException">Thrown when the given type does not have a mapping.</exception>
-		public static string GetType(Type type) => Mappings[Nullable.GetUnderlyingType(type) ?? type];
+		public static string GetType(Type type)
+		{
+			// Get the actual type
+			type = Nullable.GetUnderlyingType(type) ?? type;
+			// Default enum types to a string
+			if (type.IsEnum) return Mappings[typeof(string)];
+			return Mappings[type];
+		}
 
 		/// <summary>
 		/// Returns an equivalent <see cref="Type"/> for the given SQLite <paramref name="type"/>.
