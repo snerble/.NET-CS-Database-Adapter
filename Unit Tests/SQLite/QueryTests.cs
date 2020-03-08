@@ -84,11 +84,24 @@ namespace Database.SQLite
 			{
 				newItems[i] = new TestModel()
 				{
+					Id = i == 4 ? (int?)15 : null,
 					TextField = "InsertTest",
 					NumberField = i
 				};
 			}
 			Database.Insert<TestModel>(newItems);
+
+			// Check if the primary keys have been replaced
+			Assert.IsTrue(newItems.All(x => x.Id.HasValue), "The primary keys have not been updated.");
+
+			// Check if the primary keys have the correct incrementing value
+			Assert.IsTrue(newItems.Select((x, i) => x.Id == (i >= 4 ? i + 11 : i + 1)).All(x => x),
+				"The primary keys of the inserted items did not follow the expected sequence."
+			);
+
+			// Verify inserted data with select
+			var items = Database.Select<TestModel>().ToList();
+			Assert.IsTrue(items.SequenceEqual(newItems), "The inserted items did not match the returned elements.");
 		}
 
 		[TestMethod]
@@ -111,8 +124,7 @@ namespace Database.SQLite
 			// Retrieve the items again
 			var items = Database.Select<TestModel>().ToList();
 
-			Assert.AreEqual(newItems.Length, items.Count,
-				$"The SELECT query did not return the expected amount of elements.");
+			Assert.AreEqual(newItems.Length, items.Count, "The SELECT query did not return the expected amount of elements.");
 		}
 
 		[TestMethod]
@@ -133,10 +145,10 @@ namespace Database.SQLite
 			Database.Insert<TestModel>(newItems);
 
 			// Delete all those items
-			int deletedCount = Database.Delete<TestModel>("`TextField` = 'DeleteTest'");
+			int deletedCount = Database.Delete<TestModel>(newItems);
 
 			// Check if the query deleted the correct amount of elements
-			Assert.AreEqual(newItems.Length, deletedCount, $"The query did not delete the correct amount of elements.");
+			Assert.AreEqual(newItems.Length, deletedCount, "The query did not delete the correct amount of elements.");
 		}
 
 		[TestMethod]
@@ -163,10 +175,9 @@ namespace Database.SQLite
 			
 			// Update the database entries with the modified versions here
 			var updatedCount = Database.Update<TestModel>(newItems);
-			Trace.WriteLine(updatedCount);
 
 			// Check if the correct amount of rows were affected
-			Assert.AreEqual(newItems.Length, updatedCount, $"The query did not update the correct amount of elements.");
+			Assert.AreEqual(newItems.Length, updatedCount, "The query did not update the correct amount of elements.");
 		}
 	}
 }
