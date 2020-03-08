@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.SQLite;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 
 namespace Database.SQLite
@@ -14,6 +15,17 @@ namespace Database.SQLite
 		/// The <see cref="SQLiteConnection"/> used by this <see cref="SQLiteAdapter"/>.
 		/// </summary>
 		public readonly SQLiteConnection Connection;
+
+		/// <summary>
+		/// Gets or sets whether inserted objects automatically get assigned their new
+		/// row ID. True by default.
+		/// </summary>
+		/// <remarks>
+		/// Only applies to row ID tables that have an INTEGER PRIMARY KEY column.
+		/// </remarks>
+		/// <seealso cref="https://www.sqlite.org/lang_createtable.html">ROWID tables</seealso>
+		/// <seealso cref="https://www.sqlite.org/lang_createtable.html#rowid">ROWID and INTEGER PRIMARY KEY</seealso>
+		public bool AutoAssignRowId { get; set; } = true;
 
 		/// <summary>
 		/// Initializes a new instance of <see cref="SQLiteAdapter"/>.
@@ -58,18 +70,17 @@ namespace Database.SQLite
 			var columns = Utils.GetProperties(type);
 
 			// Build the entire query
-			var sb = new StringBuilder("CREATE TABLE `");
+			var sb = new StringBuilder("CREATE TABLE ");
 			sb.Append(type.Name);
-			sb.Append("` (\n");
+			sb.Append(" (");
 
 			// Build the columns
 			bool first = true;
 			foreach (var column in columns)
 			{
 				// Omit the comma for the first entry
-				if (!first) sb.Append(",\n");
+				if (!first) sb.Append(',');
 
-				sb.Append('\t');
 				// TODO: Implement overwritable column data
 				//var columnData = Utils.GetColumnData(column);
 				sb.Append(column.Name);
@@ -77,14 +88,20 @@ namespace Database.SQLite
 				sb.Append(TypeMapping.GetType(column.PropertyType));
 
 				// Concatenate the column modifiers
-				foreach (var columnModifier in column.GetCustomAttributes(typeof(SQLiteColumnKeywordAttribute), false) as SQLiteColumnKeywordAttribute[])
+				foreach (var columnModifier in column.GetCustomAttributes(typeof(SQLiteTableConstraintAttribute), false) as SQLiteTableConstraintAttribute[])
 				{
 					sb.Append(' ');
 					sb.Append(columnModifier.Name);
 				}
 				first = false;
 			}
-			sb.Append("\n);");
+			sb.Append("\n)");
+
+			// Append WITHOUT ROWID if the attribute is specified
+			if (type.GetCustomAttribute<WithoutRowIdAttribute>() != null)
+				sb.Append("WITHOUT ROWID");
+
+			sb.Append(';');
 
 			// Create the command and execute it
 			using var command = new SQLiteCommand(Connection) { CommandText = sb.ToString() };
@@ -93,61 +110,86 @@ namespace Database.SQLite
 
 		public int Delete<T>(string condition)
 		{
-			using var command = new SQLiteCommand(Connection) { CommandText = $"DELETE FROM `{Utils.GetTableName<T>()}` WHERE {condition}" };
+			using var command = new SQLiteCommand(Connection) { CommandText = $"DELETE FROM {Utils.GetTableName<T>()} WHERE {condition}" };
 			return command.ExecuteNonQuery();
 		}
-		public int Delete<T>(T item)
-		{
-			var primary = Utils.GetProperties<T, PrimaryAttribute>().FirstOrDefault();
-			
-			// Create query that checks only for the primary key if one exists
-			if (primary != null)
-			{
-				using var command = Connection.CreateCommand();
-
-				var sb = new StringBuilder("DELETE FROM `");
-				sb.Append(Utils.GetTableName<T>());
-				sb.Append("` WHERE `");
-				// TODO: Implement overwritable column data
-				sb.Append(primary.Name);
-				sb.Append("` = @p");
-
-				// Add parameter for the primary column value
-				command.Parameters.Add(new SQLiteParameter("@p", primary.GetValue(item)));
-
-				// Execute the command and return the amount of affected rows
-				return command.ExecuteNonQuery();
-			}
-			// Otherwise make a query that compares the values of every column
-			else
-			{
-				throw new NotImplementedException("Deletion of an object without a primary key is currently not supported.");
-			}
-		}
+		public int Delete<T>(T item) => Delete<T>(new T[] { item });
 		public int Delete<T>(ICollection<T> items)
 		{
-			// TODO: Create one big query instead of many small ones
-			int affected_rows = 0;
-			// Delete each object individually and count all affected rows.
-			foreach (var item in items)
-				affected_rows += Delete(item);
-			return affected_rows;
+			if (!items.Any()) return 0;
+
+			using var command = Connection.CreateCommand();
+			#region Query Building
+			var sb = new StringBuilder("DELETE FROM");
+			sb.Append(Utils.GetTableName<T>());
+			sb.Append("WHERE(");
+
+			// Try to get the primary key properties. Otherwise just get all properties
+			var properties = Utils.GetProperties<T, PrimaryAttribute>().ToArray();
+			if (!properties.Any()) properties = Utils.GetProperties<T>().ToArray();
+
+			// Build conditions for every property and item
+			for (int i = 0; i < properties.Length; ++i)
+			{
+				var property = properties[i];
+
+				if (i != 0) sb.Append(") AND (");
+
+				var test = items.Select(x => property.GetValue(x)).Distinct().ToList();
+
+				// Combine all conditions and simultaneously create SQLiteParameter objects for every
+				// distinct value of this property
+				sb.AppendJoin(" OR ", items.Select(x => property.GetValue(x)).Distinct().Select((value, j) =>
+				{
+					// Skip creating an SQLiteParameter if the value is null
+					if (value == null)
+						return $"{property.Name} IS NULL";
+
+					var paramName = $"@{i}_{j}";
+					command.Parameters.Add(new SQLiteParameter(paramName, value));
+
+					// Return a comparison between the column and the new parameter
+					return $"{property.Name} = {paramName}";
+				}));
+			}
+			sb.Append(");"); 
+			#endregion
+
+			// Execute the command and return the amount of affected rows
+			command.CommandText = sb.ToString();
+			return command.ExecuteNonQuery();
 		}
 
-		public int Insert<T>(T item) => Insert<T>(new T[] { item });
-		public int Insert<T>(ICollection<T> items)
+		public long Insert<T>(T item) => Insert<T>(new T[] { item });
+		public long Insert<T>(ICollection<T> items)
 		{
 			if (items.Count == 0) return -1;
 
+			var tableName = Utils.GetTableName<T>();
 			var properties = Utils.GetProperties<T>();
+			// Get the rowid property (if it is null, the query will be shortened)
+			var rowid = Utils.GetRowIdProperty<T>(properties);
 			using var command = Connection.CreateCommand();
 
-			var sb = new StringBuilder("INSERT INTO `");
-			sb.Append(Utils.GetTableName<T>());
-			sb.Append("`(");
+			#region Query Building
+			var sb = new StringBuilder();
+			
+			// Begin with another command to get the highest ROWID if AutoAssignRowId is false
+			// or if there is no rowid property
+			if (AutoAssignRowId && rowid != null)
+			{
+				sb.Append("SELECT MAX(ROWID) FROM");
+				sb.Append(tableName);
+				sb.Append("LIMIT 1;");
+			}
+
+			// Begin actual insert query
+			sb.Append("INSERT INTO");
+			sb.Append(tableName);
+			sb.Append('(');
 			// Join all column names with commas in between
 			sb.Append(string.Join(',', properties.Select(x => x.Name)));
-			sb.Append(")VALUES"); // TODO: Remove query indentation (not just here)
+			sb.Append(")VALUES");
 
 			// Build the parameter section for every given element.
 			int i = 0;
@@ -155,27 +197,55 @@ namespace Database.SQLite
 			{
 				if (i != 0) sb.Append(',');
 				sb.Append('(');
-				
+
 				// Append the column parameter names and simultaneously create the SQLiteParameter objects
-				sb.Append(string.Join(',', properties.Select((x, j) =>
+				sb.AppendJoin(',', properties.Select((x, j) =>
 				{
 					var value = x.GetValue(item);
+					// Skip creating the SQLiteParameter if the value is null
 					if (value == null) return "NULL";
 					var paramName = $"@{j}_{i}";
 					command.Parameters.Add(new SQLiteParameter(paramName, value));
 					return paramName;
-				})));
+				}));
 
 				sb.Append(')');
 				++i;
 			}
 			sb.Append(';');
-			// Append another query for getting the last insert id
-			sb.Append("SELECT LAST_INSERT_ROWID();");
 
-			// Execute the command and return the scalar (first element)
+			// Add another query to get the scalar if false or if there is no rowid property
+			if (!AutoAssignRowId || rowid == null) sb.Append("SELECT LAST_INSERT_ROWID();"); 
+			#endregion
+
+			// Execute the command and return the scalar with the max ROWID
 			command.CommandText = sb.ToString();
-			return (int)(long)command.ExecuteScalar();
+			object _ = command.ExecuteScalar();
+			var scalar = (long)(_ ==  DBNull.Value ?  0L : _); // DBNull gets replaced with 0
+
+			// Skip assigning rowids if false
+			if (!AutoAssignRowId) return scalar;
+
+			// Assign the scalar for every inserted element if there is a ROWID property
+			if (rowid != null)
+			{
+				++scalar;
+				foreach (var item in items)
+				{
+					object oldValue = rowid.GetValue(item);
+					// Skip the rowid assigning if it is not null and recalculate the scalar if necessary
+					if (oldValue != null)
+					{
+						long oldRowId = Convert.ToInt64(oldValue);
+						if (oldRowId >= scalar) scalar = oldRowId + 1;
+						continue;
+					}
+					// Change the type of the scalar to the type of the rowid property and set it
+					rowid.SetValue(item, Convert.ChangeType(scalar++, Nullable.GetUnderlyingType(rowid.PropertyType) ?? rowid.PropertyType));
+				}
+			}
+
+			return scalar;
 		}
 
 		public IEnumerable<T> Select<T>() where T : new() => Select<T>("1");
@@ -185,52 +255,79 @@ namespace Database.SQLite
 				throw new ArgumentException("Value may not be empty or null.", nameof(condition));
 
 			// Create and execute the command
-			using var command = new SQLiteCommand(Connection) { CommandText = $"SELECT * FROM `{Utils.GetTableName<T>()}` WHERE {condition}" };
+			using var command = new SQLiteCommand(Connection) { CommandText = $"SELECT * FROM {Utils.GetTableName<T>()} WHERE {condition}" };
 			using var reader = command.ExecuteReader();
 
-			var columns = Utils.GetProperties<T>();
-			while (reader.Read())
-			{
-				T outObj = new T();
-				for (int i = 0; i < reader.FieldCount; i++)
-				{
-					// TODO: Make the case-insensitivity optional
-					var column = columns.First(x => x.Name.ToLower() == reader.GetName(i).ToLower());
-					var type = column.PropertyType;
-					var value = reader.GetValue(i);
-
-					// Parse the value in case the model's type is an enum
-					if (type.IsEnum) value = Enum.Parse(type, value.ToString());
-
-					// Convert the value to the property type if it is a long (required since all int values are returned as a long)
-					else if (reader.GetFieldType(i).IsAssignableFrom(typeof(long)))
-						value = Convert.ChangeType(value, Nullable.GetUnderlyingType(type) ?? type);
-
-					// Set the value in outObj with the property
-					column.SetValue(outObj, value == DBNull.Value ? null : value);
-				}
-				// TODO: Add weak reference or some other system for accurately tracking the outObj
-				yield return outObj;
-			}
+			// Map the reader's resultset to type T and yield it's results.
+			// Using a foreach here to keep the reader alive untill the generator is done.
+			foreach (var item in Utils.ParseReader<T>(reader))
+				yield return item;
 		}
 
-		public int Update<T>(T item)
-		{
-			// TODO: Create condition string
-			return Update(item, null);
-		}
-		public int Update<T>(T item, string condition)
-		{
-			throw new NotImplementedException();
-		}
+		public int Update<T>(T item) => Update<T>(new T[] { item });
 		public int Update<T>(ICollection<T> items)
 		{
-			// TODO: Create one big query instead of many small ones
-			int affected_rows = 0;
-			// Update each object individually and count all affected rows.
+			if (!items.Any()) return 0;
+
+			var properties = Utils.GetProperties<T>().ToArray();
+
+			// Try to get the primary key attributes. If empty, throw an exception
+			var primaries = Utils.GetProperties<PrimaryAttribute>(properties).ToArray();
+			if (!primaries.Any()) throw new ArgumentException("The given generic type does not contain a primary key property.", "T");
+
+			// Remove the primary properties from the properties list
+			properties = properties.Except(primaries).ToArray();
+
+			var tableName = Utils.GetTableName<T>();
+			using var command = Connection.CreateCommand();
+
+			#region Query Building
+			var sb = new StringBuilder();
+			int i = 0;
 			foreach (var item in items)
-				affected_rows += Update(item);
-			return affected_rows;
+			{
+				sb.Append("UPDATE");
+				sb.Append(tableName);
+				sb.Append("SET ");
+
+				// Append the setters for every non-primary-key property and simultaneously create
+				// the SQLiteParameter objects
+				sb.AppendJoin(',', properties.Select((x, j) =>
+				{
+					var value = x.GetValue(item);
+					// Skip creating the SQLiteParameter if the value is null
+					if (value is null) return $"{x.Name}=NULL";
+
+					var paramName = $"@{i}_{j}";
+					command.Parameters.Add(new SQLiteParameter(paramName, value));
+
+					// Return the setter for this column
+					return $"{x.Name}={paramName}";
+				}));
+				sb.Append(" WHERE ");
+
+				// Append the conditions that match the primary key values of the item
+				sb.AppendJoin(" AND ", primaries.Select((x, j) =>
+				{
+					var value = x.GetValue(item);
+					// Skip creating an SQLiteParameter if the value is null
+					if (value == null) return $"{x.Name} IS NULL";
+
+					var paramName = $"@{i}_c{j}";
+					command.Parameters.Add(new SQLiteParameter(paramName, value));
+
+					// Return a comparison between the column and the new parameter
+					return $"{x.Name}={paramName}";
+				}));
+
+				sb.Append(';');
+				++i;
+			}
+			#endregion
+
+			// Execute the command and return the amount of affected rows
+			command.CommandText = sb.ToString();
+			return command.ExecuteNonQuery();
 		}
 
 		public void Dispose()
