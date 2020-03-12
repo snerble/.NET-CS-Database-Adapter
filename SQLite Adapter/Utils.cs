@@ -123,15 +123,22 @@ namespace Database.SQLite
 					var type = column.PropertyType;
 					var value = reader.GetValue(i);
 
-					// Convert DBNull to null
-					if (value == DBNull.Value) value = null;
-
-					// Parse the value in case the property type is an enum
-					else if (type.IsEnum) value = Enum.Parse(type, value.ToString());
-
-					// If the type is a long, convert it to the integer type of the property
+					// If-else block for handling special values
+					if (value == DBNull.Value)
+					{
+						// Convert DBNull to null
+						value = null;
+					}
+					else if (type.IsEnum)
+					{
+						// Cast the value to an int in case the property type is an enum
+						value = Convert.ToInt32(value);
+					}
 					else if (reader.GetFieldType(i).IsAssignableFrom(typeof(long)))
+					{
+						// If the type is a long, convert it to the integer type of the property
 						value = Convert.ChangeType(value, Nullable.GetUnderlyingType(type) ?? type);
+					}
 
 					// Set the value in outObj with the property
 					column.SetValue(outObj, value);
