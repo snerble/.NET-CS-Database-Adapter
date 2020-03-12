@@ -85,7 +85,6 @@ namespace Database.SQLite
 			// Verify the sequence of the id's
 			var expectedIds = new int[sample.Length].Select((x, i) => i >= sample.Length / 2 ? i + sample.Length : i + 1).ToArray();
 			Assert.IsTrue(expectedIds.SequenceEqual(sample.Select(x => x.Id.Value)), "The primary keys did not follow the expected sequence.");
-			TestTransaction.Commit();
 		}
 
 		[TestMethod]
