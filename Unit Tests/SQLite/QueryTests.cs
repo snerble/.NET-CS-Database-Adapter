@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Database.SQLite.Models;
+using System;
+using System.Collections.Generic;
 
 namespace Database.SQLite
 {
@@ -11,7 +13,7 @@ namespace Database.SQLite
 	/// Test class containing test methods that focus on the integrity of all queries.
 	/// </summary>
 	[TestClass]
-	public class QueryTests
+	public partial class QueryTests
 	{
 		/// <summary>
 		/// The path to the database used by the tests in this class.
@@ -27,7 +29,6 @@ namespace Database.SQLite
 		/// </summary>
 		private SQLiteTransaction TestTransaction { get; set; }
 
-		#region Class Setup
 		/// <summary>
 		/// Initializes the resources shared by all tests in this class.
 		/// </summary>
@@ -52,9 +53,7 @@ namespace Database.SQLite
 		{
 			Database.Dispose();
 		}
-		#endregion
-
-		#region Test Setup
+		
 		[TestInitialize]
 		public void TestInit()
 		{
@@ -64,120 +63,6 @@ namespace Database.SQLite
 		public void TestCleanup()
 		{
 			TestTransaction.Dispose();
-		}
-		#endregion
-
-		[TestMethod]
-		public void CreateTable()
-		{
-			Database.CreateTable<TestModel>();
-		}
-
-		[TestMethod]
-		public void Insert()
-		{
-			Database.CreateTable<TestModel>();
-
-			// Populate the database with test data
-			var newItems = new TestModel[10];
-			for (int i = 0; i < newItems.Length; i++)
-			{
-				newItems[i] = new TestModel()
-				{
-					Id = i == 4 ? (int?)15 : null,
-					TextField = "InsertTest",
-					NumberField = i
-				};
-			}
-			Database.Insert<TestModel>(newItems);
-
-			// Check if the primary keys have been replaced
-			Assert.IsTrue(newItems.All(x => x.Id.HasValue), "The primary keys have not been updated.");
-
-			// Check if the primary keys have the correct incrementing value
-			Assert.IsTrue(newItems.Select((x, i) => x.Id == (i >= 4 ? i + 11 : i + 1)).All(x => x),
-				"The primary keys of the inserted items did not follow the expected sequence."
-			);
-
-			// Verify inserted data with select
-			var items = Database.Select<TestModel>().ToList();
-			Assert.IsTrue(items.SequenceEqual(newItems), "The inserted items did not match the returned elements.");
-		}
-
-		[TestMethod]
-		public void Select()
-		{
-			Database.CreateTable<TestModel>();
-
-			// Populate the database with test data
-			var newItems = new TestModel[10];
-			for (int i = 0; i < newItems.Length; i++)
-			{
-				newItems[i] = new TestModel()
-				{
-					TextField = i.ToString(),
-					NumberField = i
-				};
-			}
-			Database.Insert<TestModel>(newItems);
-
-			// Retrieve the items again
-			var items = Database.Select<TestModel>().ToList();
-
-			Assert.AreEqual(newItems.Length, items.Count, "The SELECT query did not return the expected amount of elements.");
-		}
-
-		[TestMethod]
-		public void Delete()
-		{
-			Database.CreateTable<TestModel>();
-
-			// Populate the database with test data
-			var newItems = new TestModel[10];
-			for (int i = 0; i < newItems.Length; i++)
-			{
-				newItems[i] = new TestModel()
-				{
-					TextField = "DeleteTest",
-					NumberField = i
-				};
-			}
-			Database.Insert<TestModel>(newItems);
-
-			// Delete all those items
-			int deletedCount = Database.Delete<TestModel>(newItems);
-
-			// Check if the query deleted the correct amount of elements
-			Assert.AreEqual(newItems.Length, deletedCount, "The query did not delete the correct amount of elements.");
-		}
-
-		[TestMethod]
-		public void Update()
-		{
-			Database.CreateTable<TestModel>();
-
-			// Populate the database with test data
-			var newItems = new TestModel[10];
-			for (int i = 0; i < newItems.Length; i++)
-			{
-				newItems[i] = new TestModel()
-				{
-					NumberField = i
-				};
-			}
-			Database.Insert<TestModel>(newItems);
-
-			// Update the text of the new items
-			foreach (var item in newItems)
-			{
-				item.TextField = "UpdateTest";
-			}
-			
-			// Update the database entries with the modified versions here
-			var updatedCount = Database.Update<TestModel>(newItems);
-
-			// Check if the correct amount of rows were affected
-			Assert.AreEqual(newItems.Length, updatedCount, "The query did not update the correct amount of elements.");
 		}
 	}
 }
