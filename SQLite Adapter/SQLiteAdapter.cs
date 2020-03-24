@@ -12,9 +12,9 @@ namespace Database.SQLite
 	public class SQLiteAdapter : IDbAdapter
 	{
 		/// <summary>
-		/// The <see cref="SQLiteConnection"/> used by this <see cref="SQLiteAdapter"/>.
+		/// Gets the <see cref="SQLiteConnection"/> used by this <see cref="SQLiteAdapter"/>.
 		/// </summary>
-		public readonly SQLiteConnection Connection;
+		public SQLiteConnection Connection { get; }
 
 		/// <summary>
 		/// Gets or sets whether inserted objects automatically get assigned their new
@@ -111,6 +111,10 @@ namespace Database.SQLite
 		public int Delete<T>(string condition)
 		{
 			using var command = new SQLiteCommand(Connection) { CommandText = $"DELETE FROM {Utils.GetTableName<T>()} WHERE {condition}" };
+
+			// Notify the delete event
+			Deleting(this, new CommandEventArgs(QueryType.DELETE, command));
+
 			return command.ExecuteNonQuery();
 		}
 		public int Delete<T>(T item) => Delete<T>(new T[] { item });
@@ -153,10 +157,13 @@ namespace Database.SQLite
 				}));
 			}
 			sb.Append(");"); 
+			command.CommandText = sb.ToString();
 			#endregion
 
+			// Notify the delete event
+			Deleting(this, new CommandEventArgs(QueryType.DELETE, command));
+
 			// Execute the command and return the amount of affected rows
-			command.CommandText = sb.ToString();
 			return command.ExecuteNonQuery();
 		}
 
@@ -216,10 +223,13 @@ namespace Database.SQLite
 
 			// Add another query to get the scalar if false or if there is no rowid property
 			if (!AutoAssignRowId || rowid == null) sb.Append("SELECT LAST_INSERT_ROWID();"); 
+			command.CommandText = sb.ToString();
 			#endregion
 
+			// Notify the insert event
+			Inserting(this, new CommandEventArgs(QueryType.INSERT, command));
+
 			// Execute the command and return the scalar with the max ROWID
-			command.CommandText = sb.ToString();
 			object _ = command.ExecuteScalar();
 			var scalar = (long)(_ ==  DBNull.Value ?  0L : _); // DBNull gets replaced with 0
 
@@ -254,8 +264,13 @@ namespace Database.SQLite
 			if (string.IsNullOrEmpty(condition))
 				throw new ArgumentException("Value may not be empty or null.", nameof(condition));
 
-			// Create and execute the command
+			// Create the command
 			using var command = new SQLiteCommand(Connection) { CommandText = $"SELECT * FROM {Utils.GetTableName<T>()} WHERE {condition}" };
+
+			// Notify the select event
+			Selecting(this, new CommandEventArgs(QueryType.SELECT, command));
+
+			// Execute the command
 			using var reader = command.ExecuteReader();
 
 			// Map the reader's resultset to type T and yield it's results.
@@ -323,16 +338,83 @@ namespace Database.SQLite
 				sb.Append(';');
 				++i;
 			}
+			command.CommandText = sb.ToString();
 			#endregion
 
+			// Notify the update event
+			Updating(this, new CommandEventArgs(QueryType.UPDATE, command));
+
 			// Execute the command and return the amount of affected rows
-			command.CommandText = sb.ToString();
 			return command.ExecuteNonQuery();
 		}
+
+		/// <summary>
+		/// Represents the method that will handle SQLite query events from a <see cref="SQLiteDataAdapter"/>.
+		/// </summary>
+		/// <param name="sender">The <see cref="SQLiteDataAdapter"/> instance invoking this handler.</param>
+		/// <param name="args">An event arguments object containing data about the event.</param>
+		public delegate void CommandEventHandler(SQLiteAdapter sender, CommandEventArgs args);
+		
+		/// <summary>
+		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
+		/// DELETE query.
+		/// </summary>
+		public event CommandEventHandler Deleting;
+		/// <summary>
+		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
+		/// INSERT query.
+		/// </summary>
+		public event CommandEventHandler Inserting;
+		/// <summary>
+		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
+		/// SELECT query.
+		/// </summary>
+		public event CommandEventHandler Selecting;
+		/// <summary>
+		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
+		/// UPDATE query.
+		/// </summary>
+		public event CommandEventHandler Updating;
 
 		public void Dispose()
 		{
 			Connection.Dispose();
 		}
+	}
+
+	/// <summary>
+	/// Event arguments class for the <see cref="SQLiteAdapter.CommandEventHandler"/> delegate.
+	/// </summary>
+	public class CommandEventArgs
+	{
+		/// <summary>
+		/// Gets the type of query that is being executed.
+		/// </summary>
+		public QueryType Type { get; }
+		/// <summary>
+		/// Gets the <see cref="SQLiteCommand"/> instance that is being executed.
+		/// </summary>
+		public SQLiteCommand Command { get; }
+
+		/// <summary>
+		/// Initializes a new instance of
+		/// </summary>
+		/// <param name="type"></param>
+		public CommandEventArgs(QueryType type, SQLiteCommand command)
+		{
+			Type = type;
+			Command = command;
+		}
+	}
+
+	/// <summary>
+	/// Represents one of 4 different types of queries.
+	/// </summary>
+	public enum QueryType
+	{
+		DELETE,
+		SELECT,
+		INSERT,
+		UPDATE
 	}
 }
