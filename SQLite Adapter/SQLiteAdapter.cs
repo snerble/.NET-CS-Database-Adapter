@@ -27,6 +27,8 @@ namespace Database.SQLite
 		/// <seealso cref="https://www.sqlite.org/lang_createtable.html#rowid">ROWID and INTEGER PRIMARY KEY</seealso>
 		public bool AutoAssignRowId { get; set; } = true;
 
+		private bool aborting = false;
+
 		/// <summary>
 		/// Initializes a new instance of <see cref="SQLiteAdapter"/>.
 		/// </summary>
@@ -108,19 +110,22 @@ namespace Database.SQLite
 			command.ExecuteNonQuery();
 		}
 
-		public int Delete<T>(string condition)
+		public virtual int Delete<T>(string condition)
 		{
-			using var command = new SQLiteCommand(Connection) { CommandText = $"DELETE FROM {Utils.GetTableName<T>()} WHERE {condition}" };
+			// Notify the deleting event
+			InvokeEvent(Deleting, new DeleteEventArgs(typeof(T), condition));
 
-			// Notify the delete event
-			Deleting(this, new CommandEventArgs(QueryType.DELETE, command));
+			using var command = new SQLiteCommand(Connection) { CommandText = $"DELETE FROM {Utils.GetTableName<T>()} WHERE {condition}" };
 
 			return command.ExecuteNonQuery();
 		}
 		public int Delete<T>(T item) => Delete<T>(new T[] { item });
-		public int Delete<T>(ICollection<T> items)
+		public virtual int Delete<T>(IList<T> items)
 		{
 			if (!items.Any()) return 0;
+
+			// Notify the deleting event
+			InvokeEvent(Deleting, new DeleteEventArgs(typeof(T), (IList<object>)items));
 
 			using var command = Connection.CreateCommand();
 			#region Query Building
@@ -139,8 +144,6 @@ namespace Database.SQLite
 
 				if (i != 0) sb.Append(") AND (");
 
-				var test = items.Select(x => property.GetValue(x)).Distinct().ToList();
-
 				// Combine all conditions and simultaneously create SQLiteParameter objects for every
 				// distinct value of this property
 				sb.AppendJoin(" OR ", items.Select(x => property.GetValue(x)).Distinct().Select((value, j) =>
@@ -156,21 +159,21 @@ namespace Database.SQLite
 					return $"{property.Name} = {paramName}";
 				}));
 			}
-			sb.Append(");"); 
+			sb.Append(");");
 			command.CommandText = sb.ToString();
 			#endregion
-
-			// Notify the delete event
-			Deleting(this, new CommandEventArgs(QueryType.DELETE, command));
 
 			// Execute the command and return the amount of affected rows
 			return command.ExecuteNonQuery();
 		}
 
 		public long Insert<T>(T item) => Insert<T>(new T[] { item });
-		public long Insert<T>(ICollection<T> items)
+		public virtual long Insert<T>(IList<T> items)
 		{
 			if (items.Count == 0) return -1;
+
+			// Notify the inserting event
+			InvokeEvent(Inserting, new InsertEventArgs(typeof(T), (IList<object>)items));
 
 			var tableName = Utils.GetTableName<T>();
 			var properties = Utils.GetProperties<T>();
@@ -180,7 +183,7 @@ namespace Database.SQLite
 
 			#region Query Building
 			var sb = new StringBuilder();
-			
+
 			// Begin with another command to get the highest ROWID if AutoAssignRowId is false
 			// or if there is no rowid property
 			if (AutoAssignRowId && rowid != null)
@@ -222,16 +225,13 @@ namespace Database.SQLite
 			sb.Append(';');
 
 			// Add another query to get the scalar if false or if there is no rowid property
-			if (!AutoAssignRowId || rowid == null) sb.Append("SELECT LAST_INSERT_ROWID();"); 
+			if (!AutoAssignRowId || rowid == null) sb.Append("SELECT LAST_INSERT_ROWID();");
 			command.CommandText = sb.ToString();
 			#endregion
 
-			// Notify the insert event
-			Inserting(this, new CommandEventArgs(QueryType.INSERT, command));
-
 			// Execute the command and return the scalar with the max ROWID
 			object _ = command.ExecuteScalar();
-			var scalar = (long)(_ ==  DBNull.Value ?  0L : _); // DBNull gets replaced with 0
+			var scalar = (long)(_ == DBNull.Value ? 0L : _); // DBNull gets replaced with 0
 
 			// Skip assigning rowids if false
 			if (!AutoAssignRowId) return scalar;
@@ -259,16 +259,16 @@ namespace Database.SQLite
 		}
 
 		public IEnumerable<T> Select<T>() where T : new() => Select<T>("1");
-		public IEnumerable<T> Select<T>(string condition) where T : new()
+		public virtual IEnumerable<T> Select<T>(string condition) where T : new()
 		{
 			if (string.IsNullOrEmpty(condition))
 				throw new ArgumentException("Value may not be empty or null.", nameof(condition));
 
+			// Notify the selecting event
+			InvokeEvent(Selecting, new SelectEventArgs(typeof(T), condition));
+
 			// Create the command
 			using var command = new SQLiteCommand(Connection) { CommandText = $"SELECT * FROM {Utils.GetTableName<T>()} WHERE {condition}" };
-
-			// Notify the select event
-			Selecting(this, new CommandEventArgs(QueryType.SELECT, command));
 
 			// Execute the command
 			using var reader = command.ExecuteReader();
@@ -280,8 +280,14 @@ namespace Database.SQLite
 		}
 
 		public int Update<T>(T item) => Update<T>(new T[] { item });
-		public int Update<T>(ICollection<T> items)
+		public virtual int Update<T>(IList<T> items)
 		{
+			// Notify the updating event
+			InvokeEvent(Updating, new UpdateEventArgs(typeof(T), (IList<object>)items));
+
+			// Reset command abort flag
+			aborting = false;
+
 			if (!items.Any()) return 0;
 
 			var properties = Utils.GetProperties<T>().ToArray();
@@ -341,40 +347,69 @@ namespace Database.SQLite
 			command.CommandText = sb.ToString();
 			#endregion
 
-			// Notify the update event
-			Updating(this, new CommandEventArgs(QueryType.UPDATE, command));
-
 			// Execute the command and return the amount of affected rows
 			return command.ExecuteNonQuery();
 		}
 
 		/// <summary>
-		/// Represents the method that will handle SQLite query events from a <see cref="SQLiteDataAdapter"/>.
+		/// Prevents the current <see cref="SQLiteCommand"/> from being executed.
 		/// </summary>
-		/// <param name="sender">The <see cref="SQLiteDataAdapter"/> instance invoking this handler.</param>
-		/// <param name="args">An event arguments object containing data about the event.</param>
-		public delegate void CommandEventHandler(SQLiteAdapter sender, CommandEventArgs args);
-		
+		/// <remarks>
+		/// Intended to be used only during the <see cref="Deleting"/>, <see cref="Inserting"/>
+		/// <see cref="Selecting"/> or <see cref="Updating"/> events.
+		/// </remarks>
+		public void Abort() => aborting = true;
+
+		/// <summary>
+		/// Invokes a given <see cref="QueryEventHandler{TEventArgs}"/> and handles the <see cref="aborting"/> flag.
+		/// </summary>
+		/// <typeparam name="TEventArgs">The event arguments type for <paramref name="eventHandler"/>.</typeparam>
+		/// <param name="eventHandler">The <see cref="QueryEventHandler{TEventArgs}"/> to invoke.</param>
+		private void InvokeEvent<TEventArgs>(QueryEventHandler<TEventArgs> eventHandler, TEventArgs args)
+		{
+			if (eventHandler is null) return;
+
+			// Reset the aborting flag
+			aborting = false;
+
+			eventHandler.Invoke(this, args);
+
+			// Throw exception if the event delegate set the abort flag
+			if (aborting)
+			{
+				aborting = false;
+				throw new CommandAbortedException();
+			}
+		}
+
+		/// <summary>
+		/// Represents the method that will handle <see cref="SQLiteAdapter"/> query events.
+		/// </summary>
+		/// <typeparam name="TEventArgs">A type extending <see cref="CommandEventArgs"/>.</typeparam>
+		/// <param name="sender">The <see cref="SQLiteAdapter"/> instance invoking this handler.</param>
+		/// <param name="args">An event arguments object containing data about query.</param>
+		public delegate void QueryEventHandler<TEventArgs>(SQLiteAdapter sender, TEventArgs args);
+
 		/// <summary>
 		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
 		/// DELETE query.
 		/// </summary>
-		public event CommandEventHandler Deleting;
+		public event QueryEventHandler<DeleteEventArgs> Deleting;
 		/// <summary>
 		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
 		/// INSERT query.
 		/// </summary>
-		public event CommandEventHandler Inserting;
+		public event QueryEventHandler<InsertEventArgs> Inserting;
 		/// <summary>
 		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
 		/// SELECT query.
 		/// </summary>
-		public event CommandEventHandler Selecting;
+		public event QueryEventHandler<SelectEventArgs> Selecting;
 		/// <summary>
 		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
 		/// UPDATE query.
 		/// </summary>
-		public event CommandEventHandler Updating;
+		public event QueryEventHandler<UpdateEventArgs> Updating;
 
 		public void Dispose()
 		{
@@ -383,38 +418,132 @@ namespace Database.SQLite
 	}
 
 	/// <summary>
-	/// Event arguments class for the <see cref="SQLiteAdapter.CommandEventHandler"/> delegate.
+	/// Event arguments class containing relevant information about a <see cref="SQLiteAdapter"/> DELETE event.
+	/// This class cannot be inherited.
 	/// </summary>
-	public class CommandEventArgs
+	public sealed class DeleteEventArgs : EventArgs
 	{
 		/// <summary>
-		/// Gets the type of query that is being executed.
+		/// Gets the condition string by which the query will delete elements from the database,
+		/// or null if no condition was specified.
 		/// </summary>
-		public QueryType Type { get; }
+		public string Condition { get; }
 		/// <summary>
-		/// Gets the <see cref="SQLiteCommand"/> instance that is being executed.
+		/// Gets the collection of objects that will be deleted from the database,
+		/// or null if no object collection
+		/// was specified.
 		/// </summary>
-		public SQLiteCommand Command { get; }
+		public IList<object> Collection { get; }
+		/// <summary>
+		/// Gets the type of the object model used in the query.
+		/// </summary>
+		public Type ModelType { get; }
 
 		/// <summary>
-		/// Initializes a new instance of
+		/// Initializes a new instance of <see cref="DeleteEventArgs"/> with the specified model
+		/// type and condition string.
 		/// </summary>
-		/// <param name="type"></param>
-		public CommandEventArgs(QueryType type, SQLiteCommand command)
+		/// <param name="modelType">The type of the object model used in the query.</param>
+		/// <param name="condition">The condition by which the query will remove elements.</param>
+		internal DeleteEventArgs(Type modelType, string condition)
 		{
-			Type = type;
-			Command = command;
+			ModelType = modelType;
+			Condition = condition;
+		}
+		/// <summary>
+		/// Initializes a new instance of <see cref="DeleteEventArgs"/> with the specified
+		/// model type and collection of objects.
+		/// </summary>
+		/// <param name="modelType">The type of the object model used in the query.</param>
+		/// <param name="collection">The objects that will be deleted by the query.</param>
+		internal DeleteEventArgs(Type modelType, IList<object> collection)
+		{
+			ModelType = modelType;
+			Collection = collection;
 		}
 	}
 
 	/// <summary>
-	/// Represents one of 4 different types of queries.
+	/// Event arguments class containing relevant information about a <see cref="SQLiteAdapter"/> INSERT event.
+	/// This class cannot be inherited.
 	/// </summary>
-	public enum QueryType
+	public sealed class InsertEventArgs
 	{
-		DELETE,
-		SELECT,
-		INSERT,
-		UPDATE
+		/// <summary>
+		/// Gets the collection of objects that will be inserted into the database.
+		/// </summary>
+		public IList<object> Collection { get; }
+		/// <summary>
+		/// Gets the type of the object model used in the query.
+		/// </summary>
+		public Type ModelType { get; }
+
+		/// <summary>
+		/// Initializes a new instance of <see cref="InsertEventArgs"/> with the specified model
+		/// type and collection of objects.
+		/// </summary>
+		/// <param name="modelType">The type of the object model used in the query.</param>
+		/// <param name="collection">The objects that will be inserted by the query.</param>
+		internal InsertEventArgs(Type modelType, IList<object> collection)
+		{
+			ModelType = modelType;
+			Collection = collection;
+		}
+	}
+
+	/// <summary>
+	/// Event arguments class containing relevant information about a <see cref="SQLiteAdapter"/> SELECT event.
+	/// This class cannot be inherited.
+	/// </summary>
+	public sealed class SelectEventArgs
+	{
+		/// <summary>
+		/// Gets the condition string by which the query will select elements.
+		/// </summary>
+		public string Condition { get; }
+		/// <summary>
+		/// Gets the type of the object model used in the query.
+		/// </summary>
+		public Type ModelType { get; }
+
+		/// <summary>
+		/// Initializes a new instance of <see cref="SelectEventArgs"/> with the specified model
+		/// type and condition string.
+		/// </summary>
+		/// <param name="modelType">The type of the object model used in the query.</param>
+		/// <param name="condition">The condition by which the query will select elements.</param>
+		internal SelectEventArgs(Type modelType, string condition)
+		{
+			ModelType = modelType;
+			Condition = condition;
+		}
+	}
+
+	/// <summary>
+	/// Event arguments class containing relevant information about a <see cref="SQLiteAdapter"/> UPDATE event.
+	/// This class cannot be inherited.
+	/// </summary>
+	public sealed class UpdateEventArgs
+	{
+		/// <summary>
+		/// Gets the collection of objects that will be updated in the database.
+		/// </summary>
+		public IList<object> Collection { get; }
+		/// <summary>
+		/// Gets the type of the object model used in the query.
+		/// </summary>
+		public Type ModelType { get; }
+
+		/// <summary>
+		/// Initializes a new instance of <see cref="InsertEventArgs"/> with the specified model
+		/// type and collection of objects.
+		/// </summary>
+		/// <param name="modelType">The type of the object model used in the query.</param>
+		/// <param name="collection">The objects that will be updated by the query.</param>
+		internal UpdateEventArgs(Type modelType, IList<object> collection)
+		{
+			ModelType = modelType;
+			Collection = collection;
+		}
 	}
 }

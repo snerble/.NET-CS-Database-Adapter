@@ -33,7 +33,7 @@ namespace Database
 		/// <typeparam name="T">The type of the objects to insert into the database.</typeparam>
 		/// <param name="items">The objects to insert into the database.</param>
 		/// <returns>If the table has an auto increment column, returns the id of the first inserted item. Otherwise -1.</returns>
-		public long Insert<T>(ICollection<T> items);
+		public long Insert<T>(IList<T> items);
 
 		/// <summary>
 		/// Updates the specified object in the database.
@@ -48,7 +48,7 @@ namespace Database
 		/// <typeparam name="T">The type of the objects to update in the database.</typeparam>
 		/// <param name="items">The collection of items to update in the database.</param>
 		/// <returns>The number of affected rows.</returns>
-		public int Update<T>(ICollection<T> items);
+		public int Update<T>(IList<T> items);
 
 		/// <summary>
 		/// Deletes all objects their database table that match the specified condition.
@@ -70,6 +70,6 @@ namespace Database
 		/// <typeparam name="T">The type of the objects to delete from the database.</typeparam>
 		/// <param name="items">The collection of items to delete from the database.</param>
 		/// <returns>The number of affected rows.</returns>
-		public int Delete<T>(ICollection<T> items);
+		public int Delete<T>(IList<T> items);
 	}
 }
