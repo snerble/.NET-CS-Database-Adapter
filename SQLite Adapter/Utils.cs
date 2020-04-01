@@ -131,8 +131,8 @@ namespace Database.SQLite
 					}
 					else if (type.IsEnum)
 					{
-						// Cast the value to an int in case the property type is an enum
-						value = Convert.ToInt32(value);
+						// Parse the value in case the property type is an enum
+						value = Enum.Parse(type, value.ToString());
 					}
 					else if (reader.GetFieldType(i).IsAssignableFrom(typeof(long)))
 					{
