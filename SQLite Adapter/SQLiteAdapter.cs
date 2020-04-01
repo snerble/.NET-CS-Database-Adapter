@@ -211,7 +211,7 @@ namespace Database.SQLite
 				// Append the column parameter names and simultaneously create the SQLiteParameter objects
 				sb.AppendJoin(',', properties.Select((x, j) =>
 				{
-					var value = x.GetValue(item);
+					var value = x.PropertyType.IsEnum ? x.GetValue(item).ToString() : x.GetValue(item);
 					// Skip creating the SQLiteParameter if the value is null
 					if (value == null) return "NULL";
 					var paramName = $"@{j}_{i}";
