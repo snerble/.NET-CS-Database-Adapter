@@ -1,4 +1,4 @@
-﻿using Database.SQLite.Modeling;
+using Database.SQLite.Modeling;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -9,7 +9,7 @@ using System.Text;
 
 namespace Database.SQLite
 {
-	public class SQLiteAdapter : IDbAdapter
+	public partial class SQLiteAdapter : IDbAdapter
 	{
 		/// <summary>
 		/// Gets the <see cref="SQLiteConnection"/> used by this <see cref="SQLiteAdapter"/>.
@@ -26,8 +26,17 @@ namespace Database.SQLite
 		/// <seealso cref="https://www.sqlite.org/lang_createtable.html">ROWID tables</seealso>
 		/// <seealso cref="https://www.sqlite.org/lang_createtable.html#rowid">ROWID and INTEGER PRIMARY KEY</seealso>
 		public bool AutoAssignRowId { get; set; } = true;
-
-		private bool aborting = false;
+		/// <summary>
+		/// Gets or sets whether <see cref="Enum"/> types will be stored as text or as int.
+		/// </summary>
+		/// <remarks>
+		/// As long as the numeric values or names of an enum don't change, this <see cref="SQLiteAdapter"/>
+		/// will still be able to parse both text and int enum values regardless of this setting.
+		/// <para/>
+		/// Enum values that are combinations of other enum values only get converted to text
+		/// if they have the FlagAttribute. Otherwise they will still be stored as an int.
+		/// </remarks>
+		public bool StoreEnumsAsText { get; set; } = true;
 
 		/// <summary>
 		/// Initializes a new instance of <see cref="SQLiteAdapter"/>.
@@ -35,41 +44,21 @@ namespace Database.SQLite
 		/// <param name="datasource">The path to the database file to use.</param>
 		public SQLiteAdapter(string datasource)
 		{
-			if (datasource is null) throw new ArgumentNullException(nameof(datasource));
+			if (datasource is null)
+				throw new ArgumentNullException(nameof(datasource));
 
 			Connection = new SQLiteConnection($"Data Source={datasource};foreign keys=true");
-
-			//Connection.AddTypeMapping("INTEGER", DbType.Byte, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.SByte, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.Int16, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.UInt16, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.Int32, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.UInt32, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.Int64, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.UInt64, true);
-			//Connection.AddTypeMapping("REAL", DbType.Single, true);
-			//Connection.AddTypeMapping("REAL", DbType.Double, true);
-			//Connection.AddTypeMapping("NUMERIC", DbType.Decimal, true);
-			//Connection.AddTypeMapping("boolean", DbType.Boolean, true);
-			//Connection.AddTypeMapping("TEXT", DbType.String, true);
-			//Connection.AddTypeMapping("TEXT", DbType.StringFixedLength, true);
-			//Connection.AddTypeMapping("BLOB", DbType.Binary, true);
-
 			Connection.Open();
 		}
 
-		/// <summary>
-		/// Creates a new table that represents the given type <typeparamref name="T"/>.
-		/// </summary>
-		/// <typeparam name="T">The type to make a database table for.</typeparam>
+		/// <inheritdoc cref="CreateTable(Type)"/>
 		public void CreateTable<T>() => CreateTable(typeof(T));
 		/// <summary>
-		/// Creates a new table that represents the given <paramref name="type"/>.
+		/// Creates a new table that represents the given type.
 		/// </summary>
-		/// <param name="type">The type to make a database table for.</param>
 		public void CreateTable(Type type)
 		{
-			var columns = Utils.GetProperties(type);
+			PropertyInfo[] columns = Utils.GetProperties(type).ToArray();
 
 			// Build the entire query
 			var sb = new StringBuilder("CREATE TABLE ");
@@ -78,10 +67,11 @@ namespace Database.SQLite
 
 			// Build the columns
 			bool first = true;
-			foreach (var column in columns)
+			foreach (PropertyInfo column in columns)
 			{
 				// Omit the comma for the first entry
-				if (!first) sb.Append(',');
+				if (!first)
+					sb.Append(',');
 
 				// TODO: Implement overwritable column data
 				//var columnData = Utils.GetColumnData(column);
@@ -90,7 +80,7 @@ namespace Database.SQLite
 				sb.Append(TypeMapping.GetType(column.PropertyType));
 
 				// Concatenate the column modifiers
-				foreach (var columnModifier in column.GetCustomAttributes(typeof(SQLiteTableConstraintAttribute), false) as SQLiteTableConstraintAttribute[])
+				foreach (SQLiteTableConstraintAttribute columnModifier in column.GetCustomAttributes<SQLiteTableConstraintAttribute>(false))
 				{
 					sb.Append(' ');
 					sb.Append(columnModifier.Name);
@@ -109,11 +99,57 @@ namespace Database.SQLite
 			using var command = new SQLiteCommand(Connection) { CommandText = sb.ToString() };
 			command.ExecuteNonQuery();
 		}
+		/// <inheritdoc cref="TryCreateTable(Type)"/>
+		public bool TryCreateTable<T>() => TryCreateTable(typeof(T));
+		/// <summary>
+		/// Attempts to create a table for the specified type if it does not exist.
+		/// </summary>
+		public bool TryCreateTable(Type type)
+		{
+			try
+			{
+				CreateTable(type);
+				return true;
+			}
+			catch (SQLiteException)
+			{
+				return false;
+			}
+		}
+
+		/// <inheritdoc cref="DropTable(Type)"/>
+		public void DropTable<T>() => DropTable(typeof(T));
+		/// <summary>
+		/// Drops the table for the specified type.
+		/// </summary>
+		public void DropTable(Type type)
+		{
+			using var command = new SQLiteCommand(Connection) { CommandText = $"DROP TABLE `{Utils.GetTableName(type)}`" };
+			command.ExecuteNonQuery();
+		}
+		/// <inheritdoc cref="TryDropTable(Type)"/>
+		public bool TryDropTable<T>() => TryDropTable(typeof(T));
+		/// <summary>
+		/// Attempts to drop the table for the specified type.
+		/// </summary>
+		/// <returns>True if the table was successfully dropped. Otherwise false.</returns>
+		public bool TryDropTable(Type type)
+		{
+			try
+			{
+				DropTable(type);
+				return true;
+			}
+			catch (SQLiteException)
+			{
+				return false;
+			}
+		}
 
 		public virtual int Delete<T>(string condition)
 		{
 			// Notify the deleting event
-			InvokeEvent(Deleting, new DeleteEventArgs(typeof(T), condition));
+			OnDeleting<T>(condition);
 
 			using var command = new SQLiteCommand(Connection) { CommandText = $"DELETE FROM {Utils.GetTableName<T>()} WHERE {condition}" };
 
@@ -122,27 +158,30 @@ namespace Database.SQLite
 		public int Delete<T>(T item) => Delete<T>(new T[] { item });
 		public virtual int Delete<T>(IList<T> items)
 		{
-			if (!items.Any()) return 0;
+			if (!items.Any())
+				return 0;
 
 			// Notify the deleting event
-			InvokeEvent(Deleting, new DeleteEventArgs(typeof(T), (IList<object>)items));
+			OnDeleting(items);
 
-			using var command = Connection.CreateCommand();
+			using var command = new SQLiteCommand(Connection);
 			#region Query Building
 			var sb = new StringBuilder("DELETE FROM");
 			sb.Append(Utils.GetTableName<T>());
 			sb.Append("WHERE(");
 
 			// Try to get the primary key properties. Otherwise just get all properties
-			var properties = Utils.GetProperties<T, PrimaryAttribute>().ToArray();
-			if (!properties.Any()) properties = Utils.GetProperties<T>().ToArray();
+			PropertyInfo[] properties = Utils.GetProperties<T, PrimaryAttribute>().ToArray();
+			if (!properties.Any())
+				properties = Utils.GetProperties<T>().ToArray();
 
 			// Build conditions for every property and item
 			for (int i = 0; i < properties.Length; ++i)
 			{
 				var property = properties[i];
 
-				if (i != 0) sb.Append(") AND (");
+				if (i != 0)
+					sb.Append(") AND (");
 
 				// Combine all conditions and simultaneously create SQLiteParameter objects for every
 				// distinct value of this property
@@ -170,16 +209,17 @@ namespace Database.SQLite
 		public long Insert<T>(T item) => Insert<T>(new T[] { item });
 		public virtual long Insert<T>(IList<T> items)
 		{
-			if (items.Count == 0) return -1;
+			if (items.Count == 0)
+				return -1;
 
 			// Notify the inserting event
-			InvokeEvent(Inserting, new InsertEventArgs(typeof(T), (IList<object>)items));
+			OnInserting(items);
 
 			var tableName = Utils.GetTableName<T>();
-			var properties = Utils.GetProperties<T>();
+			PropertyInfo[] properties = Utils.GetProperties<T>().ToArray();
 			// Get the rowid property (if it is null, the query will be shortened)
-			var rowid = Utils.GetRowIdProperty<T>(properties);
-			using var command = Connection.CreateCommand();
+			PropertyInfo rowid = Utils.GetRowIdProperty<T>(properties);
+			using var command = new SQLiteCommand(Connection);
 
 			#region Query Building
 			var sb = new StringBuilder();
@@ -203,17 +243,29 @@ namespace Database.SQLite
 
 			// Build the parameter section for every given element.
 			int i = 0;
-			foreach (var item in items)
+			foreach (T item in items)
 			{
-				if (i != 0) sb.Append(',');
+				if (i != 0)
+					sb.Append(',');
 				sb.Append('(');
 
 				// Append the column parameter names and simultaneously create the SQLiteParameter objects
 				sb.AppendJoin(',', properties.Select((x, j) =>
 				{
-					var value = x.PropertyType.IsEnum ? x.GetValue(item).ToString() : x.GetValue(item);
+					var value = x.GetValue(item);
 					// Skip creating the SQLiteParameter if the value is null
-					if (value == null) return "NULL";
+					if (value == null)
+						return "NULL";
+
+					// Cast enum values to int or string
+					if (x.PropertyType.IsEnum)
+					{
+						if (StoreEnumsAsText)
+							value = value.ToString();
+						else
+							value = (int)value;
+					}
+
 					var paramName = $"@{j}_{i}";
 					command.Parameters.Add(new SQLiteParameter(paramName, value));
 					return paramName;
@@ -225,7 +277,8 @@ namespace Database.SQLite
 			sb.Append(';');
 
 			// Add another query to get the scalar if false or if there is no rowid property
-			if (!AutoAssignRowId || rowid == null) sb.Append("SELECT LAST_INSERT_ROWID();");
+			if (!AutoAssignRowId || rowid == null)
+				sb.Append("SELECT LAST_INSERT_ROWID();");
 			command.CommandText = sb.ToString();
 			#endregion
 
@@ -234,20 +287,22 @@ namespace Database.SQLite
 			var scalar = (long)(_ == DBNull.Value ? 0L : _); // DBNull gets replaced with 0
 
 			// Skip assigning rowids if false
-			if (!AutoAssignRowId) return scalar;
+			if (!AutoAssignRowId)
+				return scalar;
 
 			// Assign the scalar for every inserted element if there is a ROWID property
 			if (rowid != null)
 			{
 				++scalar;
-				foreach (var item in items)
+				foreach (T item in items)
 				{
 					object oldValue = rowid.GetValue(item);
 					// Skip the rowid assigning if it is not null and recalculate the scalar if necessary
 					if (oldValue != null)
 					{
 						long oldRowId = Convert.ToInt64(oldValue);
-						if (oldRowId >= scalar) scalar = oldRowId + 1;
+						if (oldRowId >= scalar)
+							scalar = oldRowId + 1;
 						continue;
 					}
 					// Change the type of the scalar to the type of the rowid property and set it
@@ -265,17 +320,17 @@ namespace Database.SQLite
 				throw new ArgumentException("Value may not be empty or null.", nameof(condition));
 
 			// Notify the selecting event
-			InvokeEvent(Selecting, new SelectEventArgs(typeof(T), condition));
+			OnSelecting<T>(condition);
 
 			// Create the command
 			using var command = new SQLiteCommand(Connection) { CommandText = $"SELECT * FROM {Utils.GetTableName<T>()} WHERE {condition}" };
 
 			// Execute the command
-			using var reader = command.ExecuteReader();
+			using SQLiteDataReader reader = command.ExecuteReader();
 
 			// Map the reader's resultset to type T and yield it's results.
 			// Using a foreach here to keep the reader alive untill the generator is done.
-			foreach (var item in Utils.ParseReader<T>(reader))
+			foreach (T item in Utils.ParseReader<T>(reader))
 				yield return item;
 		}
 
@@ -283,29 +338,31 @@ namespace Database.SQLite
 		public virtual int Update<T>(IList<T> items)
 		{
 			// Notify the updating event
-			InvokeEvent(Updating, new UpdateEventArgs(typeof(T), (IList<object>)items));
+			OnUpdating(items);
 
 			// Reset command abort flag
 			aborting = false;
 
-			if (!items.Any()) return 0;
+			if (!items.Any())
+				return 0;
 
-			var properties = Utils.GetProperties<T>().ToArray();
+			PropertyInfo[] properties = Utils.GetProperties<T>().ToArray();
 
 			// Try to get the primary key attributes. If empty, throw an exception
-			var primaries = Utils.GetProperties<PrimaryAttribute>(properties).ToArray();
-			if (!primaries.Any()) throw new ArgumentException("The given generic type does not contain a primary key property.", "T");
+			PropertyInfo[] primaries = Utils.GetProperties<PrimaryAttribute>(properties).ToArray();
+			if (!primaries.Any())
+				throw new ArgumentException("The given generic type does not contain a primary key property.", "T");
 
 			// Remove the primary properties from the properties list
 			properties = properties.Except(primaries).ToArray();
 
 			var tableName = Utils.GetTableName<T>();
-			using var command = Connection.CreateCommand();
+			using var command = new SQLiteCommand(Connection);
 
 			#region Query Building
 			var sb = new StringBuilder();
 			int i = 0;
-			foreach (var item in items)
+			foreach (T item in items)
 			{
 				sb.Append("UPDATE");
 				sb.Append(tableName);
@@ -317,7 +374,8 @@ namespace Database.SQLite
 				{
 					var value = x.GetValue(item);
 					// Skip creating the SQLiteParameter if the value is null
-					if (value is null) return $"{x.Name}=NULL";
+					if (value is null)
+						return $"{x.Name}=NULL";
 
 					var paramName = $"@{i}_{j}";
 					command.Parameters.Add(new SQLiteParameter(paramName, value));
@@ -332,7 +390,8 @@ namespace Database.SQLite
 				{
 					var value = x.GetValue(item);
 					// Skip creating an SQLiteParameter if the value is null
-					if (value == null) return $"{x.Name} IS NULL";
+					if (value == null)
+						return $"{x.Name} IS NULL";
 
 					var paramName = $"@{i}_c{j}";
 					command.Parameters.Add(new SQLiteParameter(paramName, value));
@@ -351,199 +410,9 @@ namespace Database.SQLite
 			return command.ExecuteNonQuery();
 		}
 
-		/// <summary>
-		/// Prevents the current <see cref="SQLiteCommand"/> from being executed.
-		/// </summary>
-		/// <remarks>
-		/// Intended to be used only during the <see cref="Deleting"/>, <see cref="Inserting"/>
-		/// <see cref="Selecting"/> or <see cref="Updating"/> events.
-		/// </remarks>
-		public void Abort() => aborting = true;
-
-		/// <summary>
-		/// Invokes a given <see cref="QueryEventHandler{TEventArgs}"/> and handles the <see cref="aborting"/> flag.
-		/// </summary>
-		/// <typeparam name="TEventArgs">The event arguments type for <paramref name="eventHandler"/>.</typeparam>
-		/// <param name="eventHandler">The <see cref="QueryEventHandler{TEventArgs}"/> to invoke.</param>
-		private void InvokeEvent<TEventArgs>(QueryEventHandler<TEventArgs> eventHandler, TEventArgs args)
-		{
-			if (eventHandler is null) return;
-
-			// Reset the aborting flag
-			aborting = false;
-
-			eventHandler.Invoke(this, args);
-
-			// Throw exception if the event delegate set the abort flag
-			if (aborting)
-			{
-				aborting = false;
-				throw new CommandAbortedException();
-			}
-		}
-
-		/// <summary>
-		/// Represents the method that will handle <see cref="SQLiteAdapter"/> query events.
-		/// </summary>
-		/// <typeparam name="TEventArgs">A type extending <see cref="CommandEventArgs"/>.</typeparam>
-		/// <param name="sender">The <see cref="SQLiteAdapter"/> instance invoking this handler.</param>
-		/// <param name="args">An event arguments object containing data about query.</param>
-		public delegate void QueryEventHandler<TEventArgs>(SQLiteAdapter sender, TEventArgs args);
-
-		/// <summary>
-		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
-		/// DELETE query.
-		/// </summary>
-		public event QueryEventHandler<DeleteEventArgs> Deleting;
-		/// <summary>
-		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
-		/// INSERT query.
-		/// </summary>
-		public event QueryEventHandler<InsertEventArgs> Inserting;
-		/// <summary>
-		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
-		/// SELECT query.
-		/// </summary>
-		public event QueryEventHandler<SelectEventArgs> Selecting;
-		/// <summary>
-		/// This event is called when this <see cref="SQLiteDataAdapter"/> is about to execute a
-		/// UPDATE query.
-		/// </summary>
-		public event QueryEventHandler<UpdateEventArgs> Updating;
-
 		public void Dispose()
 		{
 			Connection.Dispose();
-		}
-	}
-
-	/// <summary>
-	/// Event arguments class containing relevant information about a <see cref="SQLiteAdapter"/> DELETE event.
-	/// This class cannot be inherited.
-	/// </summary>
-	public sealed class DeleteEventArgs : EventArgs
-	{
-		/// <summary>
-		/// Gets the condition string by which the query will delete elements from the database,
-		/// or null if no condition was specified.
-		/// </summary>
-		public string Condition { get; }
-		/// <summary>
-		/// Gets the collection of objects that will be deleted from the database,
-		/// or null if no object collection
-		/// was specified.
-		/// </summary>
-		public IList<object> Collection { get; }
-		/// <summary>
-		/// Gets the type of the object model used in the query.
-		/// </summary>
-		public Type ModelType { get; }
-
-		/// <summary>
-		/// Initializes a new instance of <see cref="DeleteEventArgs"/> with the specified model
-		/// type and condition string.
-		/// </summary>
-		/// <param name="modelType">The type of the object model used in the query.</param>
-		/// <param name="condition">The condition by which the query will remove elements.</param>
-		internal DeleteEventArgs(Type modelType, string condition)
-		{
-			ModelType = modelType;
-			Condition = condition;
-		}
-		/// <summary>
-		/// Initializes a new instance of <see cref="DeleteEventArgs"/> with the specified
-		/// model type and collection of objects.
-		/// </summary>
-		/// <param name="modelType">The type of the object model used in the query.</param>
-		/// <param name="collection">The objects that will be deleted by the query.</param>
-		internal DeleteEventArgs(Type modelType, IList<object> collection)
-		{
-			ModelType = modelType;
-			Collection = collection;
-		}
-	}
-
-	/// <summary>
-	/// Event arguments class containing relevant information about a <see cref="SQLiteAdapter"/> INSERT event.
-	/// This class cannot be inherited.
-	/// </summary>
-	public sealed class InsertEventArgs
-	{
-		/// <summary>
-		/// Gets the collection of objects that will be inserted into the database.
-		/// </summary>
-		public IList<object> Collection { get; }
-		/// <summary>
-		/// Gets the type of the object model used in the query.
-		/// </summary>
-		public Type ModelType { get; }
-
-		/// <summary>
-		/// Initializes a new instance of <see cref="InsertEventArgs"/> with the specified model
-		/// type and collection of objects.
-		/// </summary>
-		/// <param name="modelType">The type of the object model used in the query.</param>
-		/// <param name="collection">The objects that will be inserted by the query.</param>
-		internal InsertEventArgs(Type modelType, IList<object> collection)
-		{
-			ModelType = modelType;
-			Collection = collection;
-		}
-	}
-
-	/// <summary>
-	/// Event arguments class containing relevant information about a <see cref="SQLiteAdapter"/> SELECT event.
-	/// This class cannot be inherited.
-	/// </summary>
-	public sealed class SelectEventArgs
-	{
-		/// <summary>
-		/// Gets the condition string by which the query will select elements.
-		/// </summary>
-		public string Condition { get; }
-		/// <summary>
-		/// Gets the type of the object model used in the query.
-		/// </summary>
-		public Type ModelType { get; }
-
-		/// <summary>
-		/// Initializes a new instance of <see cref="SelectEventArgs"/> with the specified model
-		/// type and condition string.
-		/// </summary>
-		/// <param name="modelType">The type of the object model used in the query.</param>
-		/// <param name="condition">The condition by which the query will select elements.</param>
-		internal SelectEventArgs(Type modelType, string condition)
-		{
-			ModelType = modelType;
-			Condition = condition;
-		}
-	}
-
-	/// <summary>
-	/// Event arguments class containing relevant information about a <see cref="SQLiteAdapter"/> UPDATE event.
-	/// This class cannot be inherited.
-	/// </summary>
-	public sealed class UpdateEventArgs
-	{
-		/// <summary>
-		/// Gets the collection of objects that will be updated in the database.
-		/// </summary>
-		public IList<object> Collection { get; }
-		/// <summary>
-		/// Gets the type of the object model used in the query.
-		/// </summary>
-		public Type ModelType { get; }
-
-		/// <summary>
-		/// Initializes a new instance of <see cref="InsertEventArgs"/> with the specified model
-		/// type and collection of objects.
-		/// </summary>
-		/// <param name="modelType">The type of the object model used in the query.</param>
-		/// <param name="collection">The objects that will be updated by the query.</param>
-		internal UpdateEventArgs(Type modelType, IList<object> collection)
-		{
-			ModelType = modelType;
-			Collection = collection;
 		}
 	}
 }
