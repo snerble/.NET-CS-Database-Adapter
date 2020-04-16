@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace Database.SQLite.Modeling
 {
@@ -80,6 +80,6 @@ namespace Database.SQLite.Modeling
 	/// </summary>
 	/// <seealso cref="https://www.sqlite.org/withoutrowid.html">Official
 	/// documentation</seealso>
-	[AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
+	[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
 	public class WithoutRowIdAttribute : Attribute { } // TODO: Improve???? See TODO in PrimaryAttribute
 }
