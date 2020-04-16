@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SQLite;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -315,6 +316,8 @@ namespace Database.SQLite
 
 		public IEnumerable<T> Select<T>() where T : new() => Select<T>("1");
 		public virtual IEnumerable<T> Select<T>(string condition) where T : new()
+			=> Select<T>(condition, null);
+		public virtual IEnumerable<T> Select<T>(string condition, [AllowNull] object param) where T : new()
 		{
 			if (string.IsNullOrEmpty(condition))
 				throw new ArgumentException("Value may not be empty or null.", nameof(condition));
@@ -324,6 +327,11 @@ namespace Database.SQLite
 
 			// Create the command
 			using var command = new SQLiteCommand(Connection) { CommandText = $"SELECT * FROM {Utils.GetTableName<T>()} WHERE {condition}" };
+
+			// Turn the properties of param into SQLiteParameters
+			if (param != null)
+				foreach (PropertyInfo prop in Utils.GetProperties(param.GetType()))
+					command.Parameters.Add(new SQLiteParameter($"@{prop.Name}", prop.GetValue(param)));
 
 			// Execute the command
 			using SQLiteDataReader reader = command.ExecuteReader();

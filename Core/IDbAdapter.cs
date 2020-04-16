@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace Database
@@ -19,6 +19,19 @@ namespace Database
 		/// <typeparam name="T">The type of the object to select from the database.</typeparam>
 		/// <param name="condition">The condition to test all selected elements against.</param>
 		public IEnumerable<T> Select<T>(string condition) where T : new();
+		/// <summary>
+		/// Returns all entries of the given type that match the <paramref name="condition"/>.
+		/// <para/>
+		/// Properties in the <paramref name="param"/> object will be mapped to parameter tags
+		/// in <paramref name="condition"/> with the same name.
+		/// </summary>
+		/// <typeparam name="T">The type of the object to select from the database.</typeparam>
+		/// <param name="condition">The condition to test all selected elements against.</param>
+		/// <param name="param">An object whose properties to map onto the <paramref name="condition"/>.</param>
+		/// <remarks>
+		/// The parameter tags in <paramref name="condition"/> must begin with @ in order to work.
+		/// </remarks>
+		public IEnumerable<T> Select<T>(string condition, object param) where T : new();
 
 		/// <summary>
 		/// Inserts an object into the database.
