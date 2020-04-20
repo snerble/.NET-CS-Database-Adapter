@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
@@ -76,7 +76,7 @@ namespace Database.SQLite
 			// Get the actual type
 			type = Nullable.GetUnderlyingType(type) ?? type;
 			// Default enum types to a string
-			if (type.IsEnum) return Mappings[typeof(int)];
+			if (type.IsEnum) return Mappings[typeof(string)];
 			return Mappings[type];
 		}
 

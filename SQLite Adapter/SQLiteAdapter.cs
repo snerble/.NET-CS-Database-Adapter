@@ -286,6 +286,7 @@ namespace Database.SQLite
 			// Execute the command and return the scalar with the max ROWID
 			object _ = command.ExecuteScalar();
 			var scalar = (long)(_ == DBNull.Value ? 0L : _); // DBNull gets replaced with 0
+			scalar = Connection.LastInsertRowId;
 
 			// Skip assigning rowids if false
 			if (!AutoAssignRowId)
@@ -418,7 +419,7 @@ namespace Database.SQLite
 			return command.ExecuteNonQuery();
 		}
 
-		public void Dispose()
+		public virtual void Dispose()
 		{
 			Connection.Dispose();
 		}

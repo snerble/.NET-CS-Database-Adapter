@@ -58,7 +58,7 @@ namespace Database.SQLite
 		/// Invokes the <see cref="Deleting"/> event with the specified model type and collection of
 		/// objects to delete.
 		/// </summary>
-		protected void OnDeleting(Type modelType, IList<object> collection)
+		protected virtual void OnDeleting(Type modelType, IList<object> collection)
 			=> InvokeQueryEvent(Deleting, new DeleteEventArgs(modelType, collection));
 
 		/// <inheritdoc cref="OnInserting(Type, IList{object})"/>
@@ -67,7 +67,7 @@ namespace Database.SQLite
 		/// Invokes the <see cref="Inserting"/> event with the specified model type and collection
 		/// of objects to insert.
 		/// </summary>
-		protected void OnInserting(Type modelType, IList<object> collection)
+		protected virtual void OnInserting(Type modelType, IList<object> collection)
 			=> InvokeQueryEvent(Inserting, new InsertEventArgs(modelType, collection));
 
 		/// <inheritdoc cref="OnSelecting(Type, string)"/>
@@ -75,7 +75,7 @@ namespace Database.SQLite
 		/// <summary>
 		/// Invokes the <see cref="Selecting"/> event with the specified model type and condition string.
 		/// </summary>
-		protected void OnSelecting(Type modelType, string condition)
+		protected virtual void OnSelecting(Type modelType, string condition)
 			=> InvokeQueryEvent(Selecting, new SelectEventArgs(modelType, condition));
 
 		/// <inheritdoc cref="OnUpdating(Type, IList{object})"/>
@@ -84,7 +84,7 @@ namespace Database.SQLite
 		/// Invokes the <see cref="Updating"/> event with the specified model type and collection
 		/// of objects to update.
 		/// </summary>
-		protected void OnUpdating(Type modelType, IList<object> collection)
+		protected virtual void OnUpdating(Type modelType, IList<object> collection)
 			=> InvokeQueryEvent(Updating, new UpdateEventArgs(modelType, collection));
 		#endregion
 
