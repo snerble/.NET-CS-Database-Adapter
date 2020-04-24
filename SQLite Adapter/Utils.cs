@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
@@ -120,7 +120,7 @@ namespace Database.SQLite
 							? x.Name.ToLower() == reader.GetName(i).ToLower()
 							: x.Name == reader.GetName(i)
 					);
-					var type = column.PropertyType;
+					var type = Nullable.GetUnderlyingType(column.PropertyType) ?? column.PropertyType;
 					var value = reader.GetValue(i);
 
 					// If-else block for handling special values

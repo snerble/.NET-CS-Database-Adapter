@@ -247,7 +247,8 @@ namespace Database.SQLite
 						return "NULL";
 
 					// Cast enum values to int or string
-					if (x.PropertyType.IsEnum)
+					Type type = Nullable.GetUnderlyingType(x.PropertyType) ?? x.PropertyType;
+					if (type.IsEnum)
 					{
 						if (StoreEnumsAsText)
 							value = value.ToString();
