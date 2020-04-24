@@ -103,7 +103,7 @@ namespace Database.SQLite
 				sb.Append(')');
 			}
 
-			sb.Append(')';)
+			sb.Append(')');
 
 			// Append WITHOUT ROWID if the attribute is specified
 			if (type.GetCustomAttribute<WithoutRowIdAttribute>() != null)
