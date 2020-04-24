@@ -218,24 +218,12 @@ namespace Database.SQLite
 
 			var tableName = Utils.GetTableName<T>();
 			PropertyInfo[] properties = Utils.GetProperties<T>().ToArray();
-			// Get the rowid property (if it is null, the query will be shortened)
-			PropertyInfo rowid = Utils.GetRowIdProperty<T>(properties);
+			// Get the rowid property (if it is null, this will skip the rowid assignment step)
+			PropertyInfo rowid = AutoAssignRowId ? Utils.GetRowIdProperty<T>(properties) : null;
 			using var command = new SQLiteCommand(Connection);
 
 			#region Query Building
-			var sb = new StringBuilder();
-
-			// Begin with another command to get the highest ROWID if AutoAssignRowId is false
-			// or if there is no rowid property
-			if (AutoAssignRowId && rowid != null)
-			{
-				sb.Append("SELECT MAX(ROWID) FROM");
-				sb.Append(tableName);
-				sb.Append("LIMIT 1;");
-			}
-
-			// Begin actual insert query
-			sb.Append("INSERT INTO");
+			var sb = new StringBuilder("INSERT INTO");
 			sb.Append(tableName);
 			sb.Append('(');
 			// Join all column names with commas in between
@@ -277,25 +265,20 @@ namespace Database.SQLite
 			}
 			sb.Append(';');
 
-			// Add another query to get the scalar if false or if there is no rowid property
-			if (!AutoAssignRowId || rowid == null)
-				sb.Append("SELECT LAST_INSERT_ROWID();");
 			command.CommandText = sb.ToString();
 			#endregion
 
-			// Execute the command and return the scalar with the max ROWID
-			object _ = command.ExecuteScalar();
-			var scalar = (long)(_ == DBNull.Value ? 0L : _); // DBNull gets replaced with 0
-			scalar = Connection.LastInsertRowId;
-
-			// Skip assigning rowids if false
-			if (!AutoAssignRowId)
-				return scalar;
+			// Execute the command and get the scalar with the last insert ROWID
+			long scalar;
+			lock (Connection)
+			{
+				command.ExecuteNonQuery();
+				scalar = Connection.LastInsertRowId;
+			}
 
 			// Assign the scalar for every inserted element if there is a ROWID property
 			if (rowid != null)
 			{
-				++scalar;
 				foreach (T item in items)
 				{
 					object oldValue = rowid.GetValue(item);
@@ -310,6 +293,7 @@ namespace Database.SQLite
 					// Change the type of the scalar to the type of the rowid property and set it
 					rowid.SetValue(item, Convert.ChangeType(scalar++, Nullable.GetUnderlyingType(rowid.PropertyType) ?? rowid.PropertyType));
 				}
+				++scalar;
 			}
 
 			return scalar;
