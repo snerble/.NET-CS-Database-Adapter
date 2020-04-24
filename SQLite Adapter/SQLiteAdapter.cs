@@ -83,12 +83,27 @@ namespace Database.SQLite
 				// Concatenate the column modifiers
 				foreach (SQLiteTableConstraintAttribute columnModifier in column.GetCustomAttributes<SQLiteTableConstraintAttribute>(false))
 				{
+					// Primary keys are appended seperately
+					if (columnModifier is PrimaryAttribute)
+						continue;
+
 					sb.Append(' ');
 					sb.Append(columnModifier.Name);
 				}
 				first = false;
 			}
-			sb.Append("\n)");
+
+			PropertyInfo[] primaries = Utils.GetProperties<PrimaryAttribute>(columns).ToArray();
+			if (primaries.Any())
+			{
+				sb.Append(',');
+				sb.Append(new PrimaryAttribute().Name); // Create new instance to avoid more hardcoded strings
+				sb.Append('(');
+				sb.AppendJoin(',', primaries.Select(x => x.Name));
+				sb.Append(')');
+			}
+
+			sb.Append(')';)
 
 			// Append WITHOUT ROWID if the attribute is specified
 			if (type.GetCustomAttribute<WithoutRowIdAttribute>() != null)

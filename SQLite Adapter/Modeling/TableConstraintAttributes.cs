@@ -25,7 +25,6 @@ namespace Database.SQLite.Modeling
 	[AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
 	public class PrimaryAttribute : SQLiteTableConstraintAttribute
 	{
-		// TODO: Support compound primary keys (and maybe improve the way these attributes are parsed)
 		public override string Name { get; } = "PRIMARY KEY";
 	}
 
