@@ -72,6 +72,29 @@ namespace Database.SQLite.Modeling
 	{
 		public override string Name { get; } = "UNIQUE";
 	}
+	
+	[AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
+	public class ForeignKeyAttribute : SQLiteTableConstraintAttribute
+	{
+		public override string Name { get; } = "FOREIGN KEY";
+
+		/// <summary>
+		/// Gets the type referenced by this foreign key constraint.
+		/// </summary>
+		public Type ReferenceType { get; }
+		
+		/// <summary>
+		/// Initializes a new instance of <see cref="ForeignKeyAttribute"/> with the specified
+		/// reference type.
+		/// </summary>
+		/// <param name="referenceType">The type whose table to reference.</param>
+		public ForeignKeyAttribute(Type referenceType)
+		{
+			ReferenceType = referenceType;
+		}
+	}
+
+
 
 	/// <summary>
 	/// Specifies that the table does not have a ROWID column. This class cannot be

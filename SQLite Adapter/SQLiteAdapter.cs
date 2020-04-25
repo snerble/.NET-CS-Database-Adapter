@@ -87,8 +87,32 @@ namespace Database.SQLite
 					if (columnModifier is PrimaryAttribute)
 						continue;
 
-					sb.Append(' ');
-					sb.Append(columnModifier.Name);
+					if (columnModifier is ForeignKeyAttribute foreignKey)
+					{
+						string referenceTableName = Utils.GetTableName(foreignKey.ReferenceType);
+						PropertyInfo[] referencedPrimaries = Utils.GetProperties<PrimaryAttribute>(Utils.GetProperties(foreignKey.ReferenceType)).ToArray();
+
+						// Check if table exists
+						if (!Select<SQLiteMaster>("`name` = @name", new { name = referenceTableName[1..^1] }).Any())
+							throw new SQLiteException($"No such table {referenceTableName}");
+						// Throw exception if the referenced class has no primary keys
+						if (!referencedPrimaries.Any())
+							throw new ArgumentException($"The referenced table {referenceTableName} has no primary keys.");
+						// Throw NotImplementedException if the referenced table has composite primary keys
+						if (referencedPrimaries.Length > 1)
+							throw new NotImplementedException();
+
+						sb.Append(" REFERENCES");
+						sb.Append(referenceTableName);
+						sb.Append('(');
+						sb.Append(referencedPrimaries.First().Name);
+						sb.Append(')');
+					}
+					else
+					{
+						sb.Append(' ');
+						sb.Append(columnModifier.Name);
+					}
 				}
 				first = false;
 			}
