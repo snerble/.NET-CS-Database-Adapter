@@ -59,7 +59,7 @@ namespace Database.SQLite
 		/// </summary>
 		public void CreateTable(Type type)
 		{
-			PropertyInfo[] columns = Utils.GetProperties(type).ToArray();
+			var columns = Utils.GetProperties(type).ToList();
 
 			// Build the entire query
 			var sb = new StringBuilder("CREATE TABLE ");
@@ -68,7 +68,7 @@ namespace Database.SQLite
 
 			// Build the columns
 			bool first = true;
-			foreach (PropertyInfo column in columns)
+			foreach (PropertyInfo column in new List<PropertyInfo>(columns)) // Clone the list to prevent exceptions
 			{
 				// Omit the comma for the first entry
 				if (!first)
@@ -84,7 +84,7 @@ namespace Database.SQLite
 				foreach (SQLiteTableConstraintAttribute columnModifier in column.GetCustomAttributes<SQLiteTableConstraintAttribute>(false))
 				{
 					// Primary keys are appended seperately
-					if (columnModifier is PrimaryAttribute)
+					if (columnModifier.GetType() == typeof(PrimaryAttribute))
 						continue;
 
 					if (columnModifier is ForeignKeyAttribute foreignKey)
@@ -113,6 +113,8 @@ namespace Database.SQLite
 						sb.Append(' ');
 						sb.Append(columnModifier.Name);
 					}
+					// Remove the property to avoid later reuse
+					columns.Remove(column);
 				}
 				first = false;
 			}
@@ -186,16 +188,22 @@ namespace Database.SQLite
 			}
 		}
 
-		public virtual int Delete<T>(string condition)
+		public int Delete<T>(string condition) => Delete<T>(condition, null);
+		public virtual int Delete<T>(string condition, [AllowNull] object param)
 		{
 			// Notify the deleting event
 			OnDeleting<T>(condition);
 
 			using var command = new SQLiteCommand(Connection) { CommandText = $"DELETE FROM {Utils.GetTableName<T>()} WHERE {condition}" };
 
+			// Turn the properties of param into SQLiteParameters
+			if (param != null)
+				foreach (PropertyInfo prop in Utils.GetProperties(param.GetType()))
+					command.Parameters.Add(new SQLiteParameter($"@{prop.Name}", prop.GetValue(param)));
+
 			return command.ExecuteNonQuery();
 		}
-		public int Delete<T>(T item) => Delete<T>(new T[] { item });
+		public int Delete<T>(T item) => Delete<T>(new[] { item });
 		public virtual int Delete<T>(IList<T> items)
 		{
 			if (!items.Any())
@@ -255,19 +263,120 @@ namespace Database.SQLite
 			// Notify the inserting event
 			OnInserting(items);
 
+			// Use the Insert_WithAutoIncrement when an auto increment column is present or if AutoAssignRowId
+			// is false (this is because Insert_WithAutoIncrement is more efficient)
+			if (!(Utils.GetProperties<T, AutoIncrementAttribute>().FirstOrDefault() is null) || !AutoAssignRowId)
+				return Insert_WithAutoIncrement(items);
+			else
+				return Insert_NoAutoIncrement(items);
+		}
+
+		/// <summary>
+		/// Insert query variant that performs one query for every item in the collection.
+		/// </summary>
+		private long Insert_NoAutoIncrement<T>(IList<T> items)
+		{
 			var tableName = Utils.GetTableName<T>();
 			PropertyInfo[] properties = Utils.GetProperties<T>().ToArray();
 			// Get the rowid property (if it is null, this will skip the rowid assignment step)
 			PropertyInfo rowid = AutoAssignRowId ? Utils.GetRowIdProperty<T>(properties) : null;
+
+			long scalar = -1;
+			var sb = new StringBuilder();
+			using var command = new SQLiteCommand(Connection);
+
+			// Since this area uses a transaction, it should be locked in it's entirety to prevent issues
+			SQLiteTransaction transaction = null;
+			if (Connection.AutoCommit)
+			{
+				transaction = Connection.BeginTransaction();
+				// Lock using Monitor.Enter since the lock may not always be acquired
+				System.Threading.Monitor.Enter(Connection);
+			}
+
+			try
+			{
+				foreach (T item in items)
+				{
+					// Reset the command and StringBuilder for reuse
+					if (sb.Length != 0)
+					{
+						sb.Clear();
+						command.Reset();
+					}
+
+					#region Query Building
+					sb.Append("INSERT INTO");
+					sb.Append(tableName);
+					sb.Append("VALUES(");
+
+					// Append the column parameter names and simultaneously create the SQLiteParameter objects
+					sb.AppendJoin(',', properties.Select((x, i) =>
+					{
+						var value = x.GetValue(item);
+						// Skip creating the SQLiteParameter if the value is null
+						if (value is null)
+							return "NULL";
+
+						// Cast enum values to int or string
+						Type type = Nullable.GetUnderlyingType(x.PropertyType) ?? x.PropertyType;
+						if (type.IsEnum)
+						{
+							if (StoreEnumsAsText)
+								value = value.ToString();
+							else
+								value = (int)value;
+						}
+
+						var paramName = $"@{i}";
+						command.Parameters.Add(new SQLiteParameter(paramName, value));
+						return paramName;
+					}));
+					sb.Append(");");
+
+					command.CommandText = sb.ToString();
+					#endregion
+
+					command.ExecuteNonQuery();
+					scalar = Connection.LastInsertRowId;
+
+					// Assign the rowid value if the rowid is not null
+					rowid?.SetValue(item, Convert.ChangeType(scalar, Nullable.GetUnderlyingType(rowid.PropertyType) ?? rowid.PropertyType));
+				}
+			}
+			finally
+			{
+				if (!(transaction is null))
+				{
+					transaction.Commit();
+					System.Threading.Monitor.Exit(Connection);
+				}
+			}
+
+			return scalar;
+		}
+		private long Insert_WithAutoIncrement<T>(IList<T> items)
+		{
+			var tableName = Utils.GetTableName<T>();
+			PropertyInfo[] properties = Utils.GetProperties<T>().ToArray();
+			// Get the rowid property (if it is null, this will skip the rowid assignment step)
+			PropertyInfo rowid = AutoAssignRowId ? Utils.GetRowIdProperty<T>(properties) : null;
+
 			using var command = new SQLiteCommand(Connection);
 
 			#region Query Building
-			var sb = new StringBuilder("INSERT INTO");
+			bool autoCommit = Connection.AutoCommit;
+
+			var sb = new StringBuilder();
+			if (!(rowid is null))
+			{
+				sb.Append("SELECT seq FROM sqlite_sequence WHERE name = @tableName;");
+				command.Parameters.Add(new SQLiteParameter("@tableName", tableName[1..^1]));
+			}
+
+			sb.Append("INSERT INTO");
 			sb.Append(tableName);
-			sb.Append('(');
-			// Join all column names with commas in between
-			sb.Append(string.Join(',', properties.Select(x => x.Name)));
-			sb.Append(")VALUES");
+			sb.Append("VALUES");
 
 			// Build the parameter section for every given element.
 			int i = 0;
@@ -282,7 +391,7 @@ namespace Database.SQLite
 				{
 					var value = x.GetValue(item);
 					// Skip creating the SQLiteParameter if the value is null
-					if (value == null)
+					if (value is null)
 						return "NULL";
 
 					// Cast enum values to int or string
@@ -304,16 +413,22 @@ namespace Database.SQLite
 				++i;
 			}
 			sb.Append(';');
-
-			command.CommandText = sb.ToString();
 			#endregion
 
-			// Execute the command and get the scalar with the last insert ROWID
+			// Execute the command and get the scalar with the last AutoIncrement ID
 			long scalar;
 			lock (Connection)
 			{
-				command.ExecuteNonQuery();
-				scalar = Connection.LastInsertRowId;
+				if (Connection.AutoCommit)
+				{
+					sb.Insert(0, "BEGIN EXCLUSIVE;");
+					sb.Append("COMMIT;");
+				}
+
+				command.CommandText = sb.ToString();
+				object res = command.ExecuteScalar() ?? 0L;
+
+				scalar = res == DBNull.Value ? 0 : (long)res;
 			}
 
 			// Assign the scalar for every inserted element if there is a ROWID property
@@ -327,20 +442,19 @@ namespace Database.SQLite
 					{
 						long oldRowId = Convert.ToInt64(oldValue);
 						if (oldRowId >= scalar)
-							scalar = oldRowId + 1;
+							scalar = oldRowId;
 						continue;
 					}
 					// Change the type of the scalar to the type of the rowid property and set it
-					rowid.SetValue(item, Convert.ChangeType(scalar++, Nullable.GetUnderlyingType(rowid.PropertyType) ?? rowid.PropertyType));
+					rowid.SetValue(item, Convert.ChangeType(++scalar, Nullable.GetUnderlyingType(rowid.PropertyType) ?? rowid.PropertyType));
 				}
-				++scalar;
 			}
 
 			return scalar;
 		}
 
 		public IEnumerable<T> Select<T>() where T : new() => Select<T>("1");
-		public virtual IEnumerable<T> Select<T>(string condition) where T : new()
+		public IEnumerable<T> Select<T>(string condition) where T : new()
 			=> Select<T>(condition, null);
 		public virtual IEnumerable<T> Select<T>(string condition, [AllowNull] object param) where T : new()
 		{
