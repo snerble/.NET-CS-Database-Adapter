@@ -87,7 +87,6 @@ namespace Database.SQLite
 			
 			// Return the first property that either has the AutoIncrementAttribute
 			// or if it has a PrimaryAttribute and it's type is INTEGER.
-			// TODO: Don't forget to change this if the attributes get changed
 			return properties.Where(x => x.GetCustomAttribute<PrimaryAttribute>() != null).FirstOrDefault(
 				x => x.GetCustomAttribute<AutoIncrementAttribute>() != null
 					 || TypeMapping.GetType(x.PropertyType) == "INTEGER"
