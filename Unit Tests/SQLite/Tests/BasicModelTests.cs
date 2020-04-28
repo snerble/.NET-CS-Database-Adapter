@@ -1,4 +1,4 @@
-﻿using Database.SQLite.Models;
+using Database.SQLite.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Collections.Generic;
@@ -77,7 +77,7 @@ namespace Database.SQLite
 			var lastInsertId = Database.Insert<BasicModel>(sample);
 
 			// Verify the returned rowid
-			Assert.AreEqual((int)(sample.Length * 1.5 + sample.Length / 2), lastInsertId, "The returned LAST_INSERT_ROWID did not have the expected value.");
+			Assert.AreEqual((int)(sample.Length * 1.5 + (sample.Length - 1) / 2), lastInsertId, "The returned LAST_INSERT_ROWID did not have the expected value.");
 
 			// Verify that the id's have changed
 			Assert.IsFalse(sample.Any(x => x.Id == null), "The primary keys have not been replaced.");

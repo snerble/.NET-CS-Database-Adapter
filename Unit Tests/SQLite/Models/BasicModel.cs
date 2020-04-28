@@ -1,4 +1,4 @@
-﻿using Database.SQLite.Modeling;
+using Database.SQLite.Modeling;
 using System;
 
 namespace Database.SQLite.Models
@@ -17,6 +17,8 @@ namespace Database.SQLite.Models
 		public byte[] Blob { get; set; }
 		public BasicModelEnum Enum { get; set; }
 		public DateTime DateTime { get; set; }
+
+		public override string ToString() => $"{GetType().Name}<{Id}>";
 	}
 
 	/// <summary>
