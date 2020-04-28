@@ -64,12 +64,27 @@ namespace Database
 		public int Update<T>(IList<T> items);
 
 		/// <summary>
-		/// Deletes all objects their database table that match the specified condition.
+		/// Deletes all entries of the given type that match the specified <paramref name="condition"/>
+		/// from the database.
 		/// </summary>
 		/// <typeparam name="T">The type of the objects to delete from the database.</typeparam>
 		/// <param name="condition">A condition that will match all elements that will be deleted.</param>
 		/// <returns>The number of affected rows.</returns>
 		public int Delete<T>(string condition);
+		/// <summary>
+		/// Deletes all entries of the given type that match the specified <paramref name="condition"/>
+		/// from the database.
+		/// <para/>
+		/// Properties in the <paramref name="param"/> object will be mapped to parameter tags
+		/// in <paramref name="condition"/> with the same name.
+		/// </summary>
+		/// <typeparam name="T">The type of the object to select from the database.</typeparam>
+		/// <param name="condition">The condition to test all selected elements against.</param>
+		/// <param name="param">An object whose properties to map onto the <paramref name="condition"/>.</param>
+		/// <remarks>
+		/// The parameter tags in <paramref name="condition"/> must begin with @ in order to work.
+		/// </remarks>
+		public int Delete<T>(string condition, object param);
 		/// <summary>
 		/// Deletes an specified object from the database.
 		/// </summary>
