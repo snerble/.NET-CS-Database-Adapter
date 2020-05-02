@@ -141,22 +141,18 @@ namespace Database.SQLite
 			using var command = new SQLiteCommand(Connection) { CommandText = sb.ToString() };
 			command.ExecuteNonQuery();
 		}
-		/// <inheritdoc cref="TryCreateTable(Type)"/>
-		public bool TryCreateTable<T>() => TryCreateTable(typeof(T));
+		/// <inheritdoc cref="CreateTableIfNotExists(Type)"/>
+		public bool CreateTableIfNotExists<T>() => CreateTableIfNotExists(typeof(T));
 		/// <summary>
-		/// Attempts to create a table for the specified type if it does not exist.
+		/// Creates a table for the specified type if it doesnt exist.
 		/// </summary>
-		public bool TryCreateTable(Type type)
+		public bool CreateTableIfNotExists(Type type)
 		{
-			try
-			{
-				CreateTable(type);
-				return true;
-			}
-			catch (SQLiteException)
-			{
+			if (Select<SQLiteMaster>("`name` = @name", new { name = Utils.GetTableName(type)[1..^1] }).Any())
 				return false;
-			}
+
+			CreateTable(type);
+			return true;
 		}
 
 		/// <inheritdoc cref="DropTable(Type)"/>
@@ -169,23 +165,20 @@ namespace Database.SQLite
 			using var command = new SQLiteCommand(Connection) { CommandText = $"DROP TABLE `{Utils.GetTableName(type)}`" };
 			command.ExecuteNonQuery();
 		}
-		/// <inheritdoc cref="TryDropTable(Type)"/>
-		public bool TryDropTable<T>() => TryDropTable(typeof(T));
+		/// <inheritdoc cref="DropTableIfExists(Type)"/>
+		public bool DropTableIfExists<T>() => DropTableIfExists(typeof(T));
 		/// <summary>
-		/// Attempts to drop the table for the specified type.
+		/// Drops the table of the specified <paramref name="type"/> if it exists.
+		/// Otherwise does nothing.
 		/// </summary>
-		/// <returns>True if the table was successfully dropped. Otherwise false.</returns>
-		public bool TryDropTable(Type type)
+		/// <returns>True if the table was dropped. Otherwise false.</returns>
+		public bool DropTableIfExists(Type type)
 		{
-			try
-			{
-				DropTable(type);
-				return true;
-			}
-			catch (SQLiteException)
-			{
+			if (!Select<SQLiteMaster>("`name` = @name", new { name = Utils.GetTableName(type)[1..^1] }).Any())
 				return false;
-			}
+
+			DropTable(type);
+			return true;
 		}
 
 		public int Delete<T>(string condition) => Delete<T>(condition, null);
