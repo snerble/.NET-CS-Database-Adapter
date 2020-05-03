@@ -277,10 +277,10 @@ namespace Database.SQLite
 
 			// Since this area uses a transaction, it should be locked in it's entirety to prevent issues
 			SQLiteTransaction transaction = null;
+			// Lock using Monitor.Enter since the lock may not always be acquired
+			System.Threading.Monitor.Enter(Connection);
 			if (Connection.AutoCommit)
 			{
-				// Lock using Monitor.Enter since the lock may not always be acquired
-				System.Threading.Monitor.Enter(Connection);
 				try
 				{
 					transaction = Connection.BeginTransaction();
@@ -290,6 +290,11 @@ namespace Database.SQLite
 					System.Threading.Monitor.Exit(Connection);
 					throw;
 				}
+			}
+			else
+			{
+				// Release lock if no transaction was made
+				System.Threading.Monitor.Exit(Connection);
 			}
 
 			try
@@ -417,30 +422,19 @@ namespace Database.SQLite
 			long scalar = 0;
 			lock (Connection)
 			{
-				SQLiteTransaction transaction = null;
 				if (Connection.AutoCommit)
 				{
-					// TODO Test if this is the same as BEGIN EXCLUSIVE
-					transaction = Connection.BeginTransaction(IsolationLevel.Serializable);
-					//sb.Insert(0, "BEGIN EXCLUSIVE;");
-					//sb.Append("COMMIT;");
+					sb.Insert(0, "BEGIN EXCLUSIVE;");
+					sb.Append("COMMIT;");
 				}
 
 				command.CommandText = sb.ToString();
-				try
-				{
-					SQLiteDataReader reader = command.ExecuteReader();
-					if (reader.Read()) scalar = reader.GetInt64(0);
 
-					// Exhaust reader results
-					while (reader.NextResult()) { }
-				}
-				catch
-				{
-					transaction?.Rollback();
-					throw;
-				}
-				transaction?.Commit();
+				SQLiteDataReader reader = command.ExecuteReader();
+				if (reader.Read()) scalar = reader.GetInt64(0);
+
+				// Exhaust reader results
+				while (reader.NextResult()) { }
 			}
 
 			// Assign the scalar for every inserted element if there is a ROWID property
