@@ -282,9 +282,17 @@ namespace Database.SQLite
 			SQLiteTransaction transaction = null;
 			if (Connection.AutoCommit)
 			{
-				transaction = Connection.BeginTransaction();
 				// Lock using Monitor.Enter since the lock may not always be acquired
 				System.Threading.Monitor.Enter(Connection);
+				try
+				{
+					transaction = Connection.BeginTransaction();
+				}
+				catch (Exception)
+				{
+					System.Threading.Monitor.Exit(Connection);
+					throw;
+				}
 			}
 
 			try
@@ -409,19 +417,33 @@ namespace Database.SQLite
 			#endregion
 
 			// Execute the command and get the scalar with the last AutoIncrement ID
-			long scalar;
+			long scalar = 0;
 			lock (Connection)
 			{
+				SQLiteTransaction transaction = null;
 				if (Connection.AutoCommit)
 				{
-					sb.Insert(0, "BEGIN EXCLUSIVE;");
-					sb.Append("COMMIT;");
+					// TODO Test if this is the same as BEGIN EXCLUSIVE
+					transaction = Connection.BeginTransaction(IsolationLevel.Serializable);
+					//sb.Insert(0, "BEGIN EXCLUSIVE;");
+					//sb.Append("COMMIT;");
 				}
 
 				command.CommandText = sb.ToString();
-				object res = command.ExecuteScalar() ?? 0L;
+				try
+				{
+					SQLiteDataReader reader = command.ExecuteReader();
+					if (reader.Read()) scalar = reader.GetInt64(0);
 
-				scalar = res == DBNull.Value ? 0 : (long)res;
+					// Exhaust reader results
+					while (reader.NextResult()) { }
+				}
+				catch
+				{
+					transaction?.Rollback();
+					throw;
+				}
+				transaction?.Commit();
 			}
 
 			// Assign the scalar for every inserted element if there is a ROWID property
