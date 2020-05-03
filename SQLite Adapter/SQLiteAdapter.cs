@@ -189,10 +189,7 @@ namespace Database.SQLite
 
 			using var command = new SQLiteCommand(Connection) { CommandText = $"DELETE FROM {Utils.GetTableName<T>()} WHERE {condition}" };
 
-			// Turn the properties of param into SQLiteParameters
-			if (param != null)
-				foreach (PropertyInfo prop in Utils.GetProperties(param.GetType()))
-					command.Parameters.Add(new SQLiteParameter($"@{prop.Name}", prop.GetValue(param)));
+			command.Parameters.AddRange(Utils.GetParameters(param).ToArray());
 
 			return command.ExecuteNonQuery();
 		}
@@ -482,10 +479,7 @@ namespace Database.SQLite
 			// Create the command
 			using var command = new SQLiteCommand(Connection) { CommandText = $"SELECT * FROM {Utils.GetTableName<T>()} WHERE {condition}" };
 
-			// Turn the properties of param into SQLiteParameters
-			if (param != null)
-				foreach (PropertyInfo prop in Utils.GetProperties(param.GetType()))
-					command.Parameters.Add(new SQLiteParameter($"@{prop.Name}", prop.GetValue(param)));
+			command.Parameters.AddRange(Utils.GetParameters(param).ToArray());
 
 			// Execute the command
 			using SQLiteDataReader reader = command.ExecuteReader();

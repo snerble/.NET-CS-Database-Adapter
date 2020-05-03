@@ -1,8 +1,11 @@
 using Database.SQLite.Modeling;
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.SQLite;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 
@@ -84,13 +87,30 @@ namespace Database.SQLite
 			// If the type simply does not have a rowid, return null
 			if (typeof(T).GetCustomAttribute<WithoutRowIdAttribute>() != null)
 				return null;
-			
+
 			// Return the first property that either has the AutoIncrementAttribute
 			// or if it has a PrimaryAttribute and it's type is INTEGER.
 			return properties.Where(x => x.GetCustomAttribute<PrimaryAttribute>() != null).FirstOrDefault(
 				x => x.GetCustomAttribute<AutoIncrementAttribute>() != null
 					 || TypeMapping.GetType(x.PropertyType) == "INTEGER"
 			);
+		}
+
+		public static IEnumerable<SQLiteParameter> GetParameters([AllowNull] object param)
+		{
+			if (param is IDictionary dict)
+			{
+				// Turn all entries into SQLiteParameters
+				foreach (DictionaryEntry item in dict)
+					yield return new SQLiteParameter(item.Key.ToString(), item.Value);
+			}
+			else
+			{
+				// Turn the properties of param into SQLiteParameters
+				if (param != null)
+					foreach (PropertyInfo prop in GetProperties(param.GetType()))
+						yield return new SQLiteParameter($"@{prop.Name}", prop.GetValue(param));
+			}
 		}
 
 		/// <summary>
