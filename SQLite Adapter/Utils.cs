@@ -1,10 +1,10 @@
+using Database.SQLite.Modeling;
+
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Reflection;
-using System.Text;
-using Database.SQLite.Modeling;
 
 namespace Database.SQLite
 {
@@ -106,20 +106,20 @@ namespace Database.SQLite
 			if (reader is null)
 				throw new ArgumentNullException(nameof(reader));
 
-			var properties = GetProperties<T>();
+			PropertyInfo[] properties = GetProperties<T>().ToArray();
 			while (reader.Read())
 			{
-				T outObj = new T();
+				var outObj = new T();
 				for (int i = 0; i < reader.FieldCount; i++)
 				{
 					var name = reader.GetName(i);
 					// Get a matching property by comparing the name of the current field with the property names
-					var column = properties.First(
+					PropertyInfo column = properties.First(
 						x => ignoreColumnCase
-							? x.Name.ToLower() == reader.GetName(i).ToLower()
-							: x.Name == reader.GetName(i)
+							? x.Name.ToLower() == name.ToLower()
+							: x.Name == name
 					);
-					var type = Nullable.GetUnderlyingType(column.PropertyType) ?? column.PropertyType;
+					Type type = Nullable.GetUnderlyingType(column.PropertyType) ?? column.PropertyType;
 					var value = reader.GetValue(i);
 
 					// If-else block for handling special values
