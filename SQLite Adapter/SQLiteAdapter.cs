@@ -18,6 +18,26 @@ namespace Database.SQLite
 		public SQLiteConnection Connection { get; }
 
 		/// <summary>
+		/// Gets or sets the <c>user_version</c> pragma of this database.
+		/// </summary>
+		public long UserVersion
+		{
+			get
+			{
+				// Retrieve the single result from the PRAGMA user_version command.
+				using var command = new SQLiteCommand(Connection) { CommandText = "PRAGMA user_version" };
+				var scalar = command.ExecuteScalar();
+				// Check for DBNull and null, despite the scalar (probably) never being those values.
+				return scalar == DBNull.Value || scalar is null ? -1 : (long)scalar;
+			}
+			set
+			{
+				using var command = new SQLiteCommand(Connection) { CommandText = $"PRAGMA user_version = {value}" };
+				command.ExecuteNonQuery();
+			}
+		}
+
+		/// <summary>
 		/// Gets or sets whether inserted objects automatically get assigned their new
 		/// row ID. True by default.
 		/// </summary>
@@ -162,7 +182,7 @@ namespace Database.SQLite
 		/// </summary>
 		public void DropTable(Type type)
 		{
-			using var command = new SQLiteCommand(Connection) { CommandText = $"DROP TABLE `{Utils.GetTableName(type)}`" };
+			using var command = new SQLiteCommand(Connection) { CommandText = $"DROP TABLE {Utils.GetTableName(type)}" };
 			command.ExecuteNonQuery();
 		}
 		/// <inheritdoc cref="DropTableIfExists(Type)"/>
