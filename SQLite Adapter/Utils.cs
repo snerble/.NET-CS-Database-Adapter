@@ -1,10 +1,13 @@
-﻿using System;
+using Database.SQLite.Modeling;
+
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.SQLite;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
-using System.Text;
-using Database.SQLite.Modeling;
 
 namespace Database.SQLite
 {
@@ -84,14 +87,30 @@ namespace Database.SQLite
 			// If the type simply does not have a rowid, return null
 			if (typeof(T).GetCustomAttribute<WithoutRowIdAttribute>() != null)
 				return null;
-			
+
 			// Return the first property that either has the AutoIncrementAttribute
 			// or if it has a PrimaryAttribute and it's type is INTEGER.
-			// TODO: Don't forget to change this if the attributes get changed
 			return properties.Where(x => x.GetCustomAttribute<PrimaryAttribute>() != null).FirstOrDefault(
 				x => x.GetCustomAttribute<AutoIncrementAttribute>() != null
 					 || TypeMapping.GetType(x.PropertyType) == "INTEGER"
 			);
+		}
+
+		public static IEnumerable<SQLiteParameter> GetParameters([AllowNull] object param)
+		{
+			if (param is IDictionary dict)
+			{
+				// Turn all entries into SQLiteParameters
+				foreach (DictionaryEntry item in dict)
+					yield return new SQLiteParameter(item.Key.ToString(), item.Value);
+			}
+			else
+			{
+				// Turn the properties of param into SQLiteParameters
+				if (param != null)
+					foreach (PropertyInfo prop in GetProperties(param.GetType()))
+						yield return new SQLiteParameter($"@{prop.Name}", prop.GetValue(param));
+			}
 		}
 
 		/// <summary>
@@ -107,31 +126,38 @@ namespace Database.SQLite
 			if (reader is null)
 				throw new ArgumentNullException(nameof(reader));
 
-			var properties = GetProperties<T>();
+			PropertyInfo[] properties = GetProperties<T>().ToArray();
 			while (reader.Read())
 			{
-				T outObj = new T();
+				var outObj = new T();
 				for (int i = 0; i < reader.FieldCount; i++)
 				{
 					var name = reader.GetName(i);
 					// Get a matching property by comparing the name of the current field with the property names
-					var column = properties.First(
+					PropertyInfo column = properties.First(
 						x => ignoreColumnCase
-							? x.Name.ToLower() == reader.GetName(i).ToLower()
-							: x.Name == reader.GetName(i)
+							? x.Name.ToLower() == name.ToLower()
+							: x.Name == name
 					);
-					var type = column.PropertyType;
+					Type type = Nullable.GetUnderlyingType(column.PropertyType) ?? column.PropertyType;
 					var value = reader.GetValue(i);
 
-					// Convert DBNull to null
-					if (value == DBNull.Value) value = null;
-
-					// Parse the value in case the property type is an enum
-					else if (type.IsEnum) value = Enum.Parse(type, value.ToString());
-
-					// If the type is a long, convert it to the integer type of the property
+					// If-else block for handling special values
+					if (value == DBNull.Value)
+					{
+						// Convert DBNull to null
+						value = null;
+					}
+					else if (type.IsEnum)
+					{
+						// Parse the value in case the property type is an enum
+						value = Enum.Parse(type, value.ToString());
+					}
 					else if (reader.GetFieldType(i).IsAssignableFrom(typeof(long)))
+					{
+						// If the type is a long, convert it to the integer type of the property
 						value = Convert.ChangeType(value, Nullable.GetUnderlyingType(type) ?? type);
+					}
 
 					// Set the value in outObj with the property
 					column.SetValue(outObj, value);

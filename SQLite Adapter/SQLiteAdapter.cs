@@ -1,20 +1,41 @@
-﻿using Database.SQLite.Modeling;
+using Database.SQLite.Modeling;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SQLite;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 
 namespace Database.SQLite
 {
-	public class SQLiteAdapter : IDbAdapter
+	public partial class SQLiteAdapter : IDbAdapter
 	{
 		/// <summary>
-		/// The <see cref="SQLiteConnection"/> used by this <see cref="SQLiteAdapter"/>.
+		/// Gets the <see cref="SQLiteConnection"/> used by this <see cref="SQLiteAdapter"/>.
 		/// </summary>
-		public readonly SQLiteConnection Connection;
+		public SQLiteConnection Connection { get; }
+
+		/// <summary>
+		/// Gets or sets the <c>user_version</c> pragma of this database.
+		/// </summary>
+		public long UserVersion
+		{
+			get
+			{
+				// Retrieve the single result from the PRAGMA user_version command.
+				using var command = new SQLiteCommand(Connection) { CommandText = "PRAGMA user_version" };
+				var scalar = command.ExecuteScalar();
+				// Check for DBNull and null, despite the scalar (probably) never being those values.
+				return scalar == DBNull.Value || scalar is null ? -1 : (long)scalar;
+			}
+			set
+			{
+				using var command = new SQLiteCommand(Connection) { CommandText = $"PRAGMA user_version = {value}" };
+				command.ExecuteNonQuery();
+			}
+		}
 
 		/// <summary>
 		/// Gets or sets whether inserted objects automatically get assigned their new
@@ -26,6 +47,17 @@ namespace Database.SQLite
 		/// <seealso cref="https://www.sqlite.org/lang_createtable.html">ROWID tables</seealso>
 		/// <seealso cref="https://www.sqlite.org/lang_createtable.html#rowid">ROWID and INTEGER PRIMARY KEY</seealso>
 		public bool AutoAssignRowId { get; set; } = true;
+		/// <summary>
+		/// Gets or sets whether <see cref="Enum"/> types will be stored as text or as int.
+		/// </summary>
+		/// <remarks>
+		/// As long as the numeric values or names of an enum don't change, this <see cref="SQLiteAdapter"/>
+		/// will still be able to parse both text and int enum values regardless of this setting.
+		/// <para/>
+		/// Enum values that are combinations of other enum values only get converted to text
+		/// if they have the FlagAttribute. Otherwise they will still be stored as an int.
+		/// </remarks>
+		public bool StoreEnumsAsText { get; set; } = true;
 
 		/// <summary>
 		/// Initializes a new instance of <see cref="SQLiteAdapter"/>.
@@ -33,53 +65,34 @@ namespace Database.SQLite
 		/// <param name="datasource">The path to the database file to use.</param>
 		public SQLiteAdapter(string datasource)
 		{
-			if (datasource is null) throw new ArgumentNullException(nameof(datasource));
+			if (datasource is null)
+				throw new ArgumentNullException(nameof(datasource));
 
 			Connection = new SQLiteConnection($"Data Source={datasource};foreign keys=true");
-
-			//Connection.AddTypeMapping("INTEGER", DbType.Byte, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.SByte, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.Int16, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.UInt16, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.Int32, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.UInt32, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.Int64, true);
-			//Connection.AddTypeMapping("INTEGER", DbType.UInt64, true);
-			//Connection.AddTypeMapping("REAL", DbType.Single, true);
-			//Connection.AddTypeMapping("REAL", DbType.Double, true);
-			//Connection.AddTypeMapping("NUMERIC", DbType.Decimal, true);
-			//Connection.AddTypeMapping("boolean", DbType.Boolean, true);
-			//Connection.AddTypeMapping("TEXT", DbType.String, true);
-			//Connection.AddTypeMapping("TEXT", DbType.StringFixedLength, true);
-			//Connection.AddTypeMapping("BLOB", DbType.Binary, true);
-
 			Connection.Open();
 		}
 
-		/// <summary>
-		/// Creates a new table that represents the given type <typeparamref name="T"/>.
-		/// </summary>
-		/// <typeparam name="T">The type to make a database table for.</typeparam>
+		/// <inheritdoc cref="CreateTable(Type)"/>
 		public void CreateTable<T>() => CreateTable(typeof(T));
 		/// <summary>
-		/// Creates a new table that represents the given <paramref name="type"/>.
+		/// Creates a new table that represents the given type.
 		/// </summary>
-		/// <param name="type">The type to make a database table for.</param>
 		public void CreateTable(Type type)
 		{
-			var columns = Utils.GetProperties(type);
+			var columns = Utils.GetProperties(type).ToList();
 
 			// Build the entire query
 			var sb = new StringBuilder("CREATE TABLE ");
-			sb.Append(type.Name);
+			sb.Append(Utils.GetTableName(type));
 			sb.Append(" (");
 
 			// Build the columns
 			bool first = true;
-			foreach (var column in columns)
+			foreach (PropertyInfo column in new List<PropertyInfo>(columns)) // Clone the list to prevent exceptions
 			{
 				// Omit the comma for the first entry
-				if (!first) sb.Append(',');
+				if (!first)
+					sb.Append(',');
 
 				// TODO: Implement overwritable column data
 				//var columnData = Utils.GetColumnData(column);
@@ -88,14 +101,55 @@ namespace Database.SQLite
 				sb.Append(TypeMapping.GetType(column.PropertyType));
 
 				// Concatenate the column modifiers
-				foreach (var columnModifier in column.GetCustomAttributes(typeof(SQLiteTableConstraintAttribute), false) as SQLiteTableConstraintAttribute[])
+				foreach (SQLiteTableConstraintAttribute columnModifier in column.GetCustomAttributes<SQLiteTableConstraintAttribute>(false))
 				{
-					sb.Append(' ');
-					sb.Append(columnModifier.Name);
+					// Primary keys are appended seperately
+					if (columnModifier.GetType() == typeof(PrimaryAttribute))
+						continue;
+
+					if (columnModifier is ForeignKeyAttribute foreignKey)
+					{
+						string referenceTableName = Utils.GetTableName(foreignKey.ReferenceType);
+						PropertyInfo[] referencedPrimaries = Utils.GetProperties<PrimaryAttribute>(Utils.GetProperties(foreignKey.ReferenceType)).ToArray();
+
+						// Check if table exists
+						if (!Select<SQLiteMaster>("`name` = @name", new { name = referenceTableName[1..^1] }).Any())
+							throw new SQLiteException($"No such table {referenceTableName}");
+						// Throw exception if the referenced class has no primary keys
+						if (!referencedPrimaries.Any())
+							throw new ArgumentException($"The referenced table {referenceTableName} has no primary keys.");
+						// Throw NotImplementedException if the referenced table has composite primary keys
+						if (referencedPrimaries.Length > 1)
+							throw new NotImplementedException();
+
+						sb.Append(" REFERENCES");
+						sb.Append(referenceTableName);
+						sb.Append('(');
+						sb.Append(referencedPrimaries.First().Name);
+						sb.Append(')');
+					}
+					else
+					{
+						sb.Append(' ');
+						sb.Append(columnModifier.Name);
+					}
+					// Remove the property to avoid later reuse
+					columns.Remove(column);
 				}
 				first = false;
 			}
-			sb.Append("\n)");
+
+			PropertyInfo[] primaries = Utils.GetProperties<PrimaryAttribute>(columns).ToArray();
+			if (primaries.Any())
+			{
+				sb.Append(',');
+				sb.Append(new PrimaryAttribute().Name); // Create new instance to avoid more hardcoded strings
+				sb.Append('(');
+				sb.AppendJoin(',', primaries.Select(x => x.Name));
+				sb.Append(')');
+			}
+
+			sb.Append(')');
 
 			// Append WITHOUT ROWID if the attribute is specified
 			if (type.GetCustomAttribute<WithoutRowIdAttribute>() != null)
@@ -107,35 +161,85 @@ namespace Database.SQLite
 			using var command = new SQLiteCommand(Connection) { CommandText = sb.ToString() };
 			command.ExecuteNonQuery();
 		}
-
-		public int Delete<T>(string condition)
+		/// <inheritdoc cref="CreateTableIfNotExists(Type)"/>
+		public bool CreateTableIfNotExists<T>() => CreateTableIfNotExists(typeof(T));
+		/// <summary>
+		/// Creates a table for the specified type if it doesnt exist.
+		/// </summary>
+		public bool CreateTableIfNotExists(Type type)
 		{
+			if (Select<SQLiteMaster>("`name` = @name", new { name = Utils.GetTableName(type)[1..^1] }).Any())
+				return false;
+
+			CreateTable(type);
+			return true;
+		}
+
+		/// <inheritdoc cref="DropTable(Type)"/>
+		public void DropTable<T>() => DropTable(typeof(T));
+		/// <summary>
+		/// Drops the table for the specified type.
+		/// </summary>
+		public void DropTable(Type type)
+		{
+			using var command = new SQLiteCommand(Connection) { CommandText = $"DROP TABLE {Utils.GetTableName(type)}" };
+			command.ExecuteNonQuery();
+		}
+		/// <inheritdoc cref="DropTableIfExists(Type)"/>
+		public bool DropTableIfExists<T>() => DropTableIfExists(typeof(T));
+		/// <summary>
+		/// Drops the table of the specified <paramref name="type"/> if it exists.
+		/// Otherwise does nothing.
+		/// </summary>
+		/// <returns>True if the table was dropped. Otherwise false.</returns>
+		public bool DropTableIfExists(Type type)
+		{
+			if (!Select<SQLiteMaster>("`name` = @name", new { name = Utils.GetTableName(type)[1..^1] }).Any())
+				return false;
+
+			DropTable(type);
+			return true;
+		}
+
+		public int Delete<T>(string condition) => Delete<T>(condition, null);
+		public virtual int Delete<T>(string condition, [AllowNull] object param)
+		{
+			// Notify the deleting event
+			OnDeleting<T>(condition);
+
 			using var command = new SQLiteCommand(Connection) { CommandText = $"DELETE FROM {Utils.GetTableName<T>()} WHERE {condition}" };
+
+			command.Parameters.AddRange(Utils.GetParameters(param).ToArray());
+
 			return command.ExecuteNonQuery();
 		}
-		public int Delete<T>(T item) => Delete<T>(new T[] { item });
-		public int Delete<T>(ICollection<T> items)
+		public int Delete<T>(T item) => Delete<T>(new[] { item });
+		public virtual int Delete<T>(IList<T> items)
 		{
-			if (!items.Any()) return 0;
+			if (!items.Any())
+				return 0;
 
-			using var command = Connection.CreateCommand();
+			// Notify the deleting event
+			OnDeleting(items);
+
+			using var command = new SQLiteCommand(Connection);
 			#region Query Building
 			var sb = new StringBuilder("DELETE FROM");
 			sb.Append(Utils.GetTableName<T>());
 			sb.Append("WHERE(");
 
 			// Try to get the primary key properties. Otherwise just get all properties
-			var properties = Utils.GetProperties<T, PrimaryAttribute>().ToArray();
-			if (!properties.Any()) properties = Utils.GetProperties<T>().ToArray();
+			PropertyInfo[] properties = Utils.GetProperties<T, PrimaryAttribute>().ToArray();
+			if (!properties.Any())
+				properties = Utils.GetProperties<T>().ToArray();
 
 			// Build conditions for every property and item
 			for (int i = 0; i < properties.Length; ++i)
 			{
 				var property = properties[i];
 
-				if (i != 0) sb.Append(") AND (");
-
-				var test = items.Select(x => property.GetValue(x)).Distinct().ToList();
+				if (i != 0)
+					sb.Append(") AND (");
 
 				// Combine all conditions and simultaneously create SQLiteParameter objects for every
 				// distinct value of this property
@@ -152,50 +256,157 @@ namespace Database.SQLite
 					return $"{property.Name} = {paramName}";
 				}));
 			}
-			sb.Append(");"); 
+			sb.Append(");");
+			command.CommandText = sb.ToString();
 			#endregion
 
 			// Execute the command and return the amount of affected rows
-			command.CommandText = sb.ToString();
 			return command.ExecuteNonQuery();
 		}
 
 		public long Insert<T>(T item) => Insert<T>(new T[] { item });
-		public long Insert<T>(ICollection<T> items)
+		public virtual long Insert<T>(IList<T> items)
 		{
-			if (items.Count == 0) return -1;
+			if (items.Count == 0)
+				return -1;
 
+			// Notify the inserting event
+			OnInserting(items);
+
+			// Use the Insert_WithAutoIncrement when an auto increment column is present or if AutoAssignRowId
+			// is false (this is because Insert_WithAutoIncrement is more efficient)
+			if (!(Utils.GetProperties<T, AutoIncrementAttribute>().FirstOrDefault() is null) || !AutoAssignRowId)
+				return Insert_WithAutoIncrement(items);
+			else
+				return Insert_NoAutoIncrement(items);
+		}
+
+		/// <summary>
+		/// Insert query variant that performs one query for every item in the collection.
+		/// </summary>
+		private long Insert_NoAutoIncrement<T>(IList<T> items)
+		{
 			var tableName = Utils.GetTableName<T>();
-			var properties = Utils.GetProperties<T>();
-			// Get the rowid property (if it is null, the query will be shortened)
-			var rowid = Utils.GetRowIdProperty<T>(properties);
-			using var command = Connection.CreateCommand();
+			PropertyInfo[] properties = Utils.GetProperties<T>().ToArray();
+			// Get the rowid property (if it is null, this will skip the rowid assignment step)
+			PropertyInfo rowid = AutoAssignRowId ? Utils.GetRowIdProperty<T>(properties) : null;
 
-			#region Query Building
+			long scalar = -1;
 			var sb = new StringBuilder();
-			
-			// Begin with another command to get the highest ROWID if AutoAssignRowId is false
-			// or if there is no rowid property
-			if (AutoAssignRowId && rowid != null)
+			using var command = new SQLiteCommand(Connection);
+
+			// Since this area uses a transaction, it should be locked in it's entirety to prevent issues
+			SQLiteTransaction transaction = null;
+			// Lock using Monitor.Enter since the lock may not always be acquired
+			System.Threading.Monitor.Enter(Connection);
+			if (Connection.AutoCommit)
 			{
-				sb.Append("SELECT MAX(ROWID) FROM");
-				sb.Append(tableName);
-				sb.Append("LIMIT 1;");
+				try
+				{
+					transaction = Connection.BeginTransaction();
+				}
+				catch (Exception)
+				{
+					System.Threading.Monitor.Exit(Connection);
+					throw;
+				}
+			}
+			else
+			{
+				// Release lock if no transaction was made
+				System.Threading.Monitor.Exit(Connection);
 			}
 
-			// Begin actual insert query
+			try
+			{
+				foreach (T item in items)
+				{
+					// Reset the command and StringBuilder for reuse
+					if (sb.Length != 0)
+					{
+						sb.Clear();
+						command.Reset();
+					}
+
+					#region Query Building
+					sb.Append("INSERT INTO");
+					sb.Append(tableName);
+					sb.Append("VALUES(");
+
+					// Append the column parameter names and simultaneously create the SQLiteParameter objects
+					sb.AppendJoin(',', properties.Select((x, i) =>
+					{
+						var value = x.GetValue(item);
+						// Skip creating the SQLiteParameter if the value is null
+						if (value is null)
+							return "NULL";
+
+						// Cast enum values to int or string
+						Type type = Nullable.GetUnderlyingType(x.PropertyType) ?? x.PropertyType;
+						if (type.IsEnum)
+						{
+							if (StoreEnumsAsText)
+								value = value.ToString();
+							else
+								value = (int)value;
+						}
+
+						var paramName = $"@{i}";
+						command.Parameters.Add(new SQLiteParameter(paramName, value));
+						return paramName;
+					}));
+					sb.Append(");");
+
+					command.CommandText = sb.ToString();
+					#endregion
+
+					command.ExecuteNonQuery();
+					scalar = Connection.LastInsertRowId;
+
+					// Assign the rowid value if the rowid is not null
+					rowid?.SetValue(item, Convert.ChangeType(scalar, Nullable.GetUnderlyingType(rowid.PropertyType) ?? rowid.PropertyType));
+				}
+			}
+			finally
+			{
+				if (!(transaction is null))
+				{
+					transaction.Commit();
+					System.Threading.Monitor.Exit(Connection);
+				}
+			}
+
+			return scalar;
+		}
+		private long Insert_WithAutoIncrement<T>(IList<T> items)
+		{
+			var tableName = Utils.GetTableName<T>();
+			PropertyInfo[] properties = Utils.GetProperties<T>().ToArray();
+			// Get the rowid property (if it is null, this will skip the rowid assignment step)
+			PropertyInfo rowid = AutoAssignRowId ? Utils.GetRowIdProperty<T>(properties) : null;
+
+			using var command = new SQLiteCommand(Connection);
+
+			#region Query Building
+			bool autoCommit = Connection.AutoCommit;
+
+			var sb = new StringBuilder();
+			if (!(rowid is null))
+			{
+				sb.Append("SELECT seq FROM sqlite_sequence WHERE name = @tableName;");
+				command.Parameters.Add(new SQLiteParameter("@tableName", tableName[1..^1]));
+			}
+
 			sb.Append("INSERT INTO");
 			sb.Append(tableName);
-			sb.Append('(');
-			// Join all column names with commas in between
-			sb.Append(string.Join(',', properties.Select(x => x.Name)));
-			sb.Append(")VALUES");
+			sb.Append("VALUES");
 
 			// Build the parameter section for every given element.
 			int i = 0;
-			foreach (var item in items)
+			foreach (T item in items)
 			{
-				if (i != 0) sb.Append(',');
+				if (i != 0)
+					sb.Append(',');
 				sb.Append('(');
 
 				// Append the column parameter names and simultaneously create the SQLiteParameter objects
@@ -203,7 +414,19 @@ namespace Database.SQLite
 				{
 					var value = x.GetValue(item);
 					// Skip creating the SQLiteParameter if the value is null
-					if (value == null) return "NULL";
+					if (value is null)
+						return "NULL";
+
+					// Cast enum values to int or string
+					Type type = Nullable.GetUnderlyingType(x.PropertyType) ?? x.PropertyType;
+					if (type.IsEnum)
+					{
+						if (StoreEnumsAsText)
+							value = value.ToString();
+						else
+							value = (int)value;
+					}
+
 					var paramName = $"@{j}_{i}";
 					command.Parameters.Add(new SQLiteParameter(paramName, value));
 					return paramName;
@@ -213,35 +436,43 @@ namespace Database.SQLite
 				++i;
 			}
 			sb.Append(';');
-
-			// Add another query to get the scalar if false or if there is no rowid property
-			if (!AutoAssignRowId || rowid == null) sb.Append("SELECT LAST_INSERT_ROWID();"); 
 			#endregion
 
-			// Execute the command and return the scalar with the max ROWID
-			command.CommandText = sb.ToString();
-			object _ = command.ExecuteScalar();
-			var scalar = (long)(_ ==  DBNull.Value ?  0L : _); // DBNull gets replaced with 0
+			// Execute the command and get the scalar with the last AutoIncrement ID
+			long scalar = 0;
+			lock (Connection)
+			{
+				if (Connection.AutoCommit)
+				{
+					sb.Insert(0, "BEGIN EXCLUSIVE;");
+					sb.Append("COMMIT;");
+				}
 
-			// Skip assigning rowids if false
-			if (!AutoAssignRowId) return scalar;
+				command.CommandText = sb.ToString();
+
+				SQLiteDataReader reader = command.ExecuteReader();
+				if (reader.Read()) scalar = reader.GetInt64(0);
+
+				// Exhaust reader results
+				while (reader.NextResult()) { }
+			}
 
 			// Assign the scalar for every inserted element if there is a ROWID property
 			if (rowid != null)
 			{
-				++scalar;
-				foreach (var item in items)
+				foreach (T item in items)
 				{
 					object oldValue = rowid.GetValue(item);
 					// Skip the rowid assigning if it is not null and recalculate the scalar if necessary
 					if (oldValue != null)
 					{
 						long oldRowId = Convert.ToInt64(oldValue);
-						if (oldRowId >= scalar) scalar = oldRowId + 1;
+						if (oldRowId >= scalar)
+							scalar = oldRowId;
 						continue;
 					}
 					// Change the type of the scalar to the type of the rowid property and set it
-					rowid.SetValue(item, Convert.ChangeType(scalar++, Nullable.GetUnderlyingType(rowid.PropertyType) ?? rowid.PropertyType));
+					rowid.SetValue(item, Convert.ChangeType(++scalar, Nullable.GetUnderlyingType(rowid.PropertyType) ?? rowid.PropertyType));
 				}
 			}
 
@@ -250,41 +481,58 @@ namespace Database.SQLite
 
 		public IEnumerable<T> Select<T>() where T : new() => Select<T>("1");
 		public IEnumerable<T> Select<T>(string condition) where T : new()
+			=> Select<T>(condition, null);
+		public virtual IEnumerable<T> Select<T>(string condition, [AllowNull] object param) where T : new()
 		{
 			if (string.IsNullOrEmpty(condition))
 				throw new ArgumentException("Value may not be empty or null.", nameof(condition));
 
-			// Create and execute the command
+			// Notify the selecting event
+			OnSelecting<T>(condition);
+
+			// Create the command
 			using var command = new SQLiteCommand(Connection) { CommandText = $"SELECT * FROM {Utils.GetTableName<T>()} WHERE {condition}" };
-			using var reader = command.ExecuteReader();
+
+			command.Parameters.AddRange(Utils.GetParameters(param).ToArray());
+
+			// Execute the command
+			using SQLiteDataReader reader = command.ExecuteReader();
 
 			// Map the reader's resultset to type T and yield it's results.
 			// Using a foreach here to keep the reader alive untill the generator is done.
-			foreach (var item in Utils.ParseReader<T>(reader))
+			foreach (T item in Utils.ParseReader<T>(reader))
 				yield return item;
 		}
 
 		public int Update<T>(T item) => Update<T>(new T[] { item });
-		public int Update<T>(ICollection<T> items)
+		public virtual int Update<T>(IList<T> items)
 		{
-			if (!items.Any()) return 0;
+			// Notify the updating event
+			OnUpdating(items);
 
-			var properties = Utils.GetProperties<T>().ToArray();
+			// Reset command abort flag
+			aborting = false;
+
+			if (!items.Any())
+				return 0;
+
+			PropertyInfo[] properties = Utils.GetProperties<T>().ToArray();
 
 			// Try to get the primary key attributes. If empty, throw an exception
-			var primaries = Utils.GetProperties<PrimaryAttribute>(properties).ToArray();
-			if (!primaries.Any()) throw new ArgumentException("The given generic type does not contain a primary key property.", "T");
+			PropertyInfo[] primaries = Utils.GetProperties<PrimaryAttribute>(properties).ToArray();
+			if (!primaries.Any())
+				throw new ArgumentException("The given generic type does not contain a primary key property.", "T");
 
 			// Remove the primary properties from the properties list
 			properties = properties.Except(primaries).ToArray();
 
 			var tableName = Utils.GetTableName<T>();
-			using var command = Connection.CreateCommand();
+			using var command = new SQLiteCommand(Connection);
 
 			#region Query Building
 			var sb = new StringBuilder();
 			int i = 0;
-			foreach (var item in items)
+			foreach (T item in items)
 			{
 				sb.Append("UPDATE");
 				sb.Append(tableName);
@@ -296,7 +544,8 @@ namespace Database.SQLite
 				{
 					var value = x.GetValue(item);
 					// Skip creating the SQLiteParameter if the value is null
-					if (value is null) return $"{x.Name}=NULL";
+					if (value is null)
+						return $"{x.Name}=NULL";
 
 					var paramName = $"@{i}_{j}";
 					command.Parameters.Add(new SQLiteParameter(paramName, value));
@@ -311,7 +560,8 @@ namespace Database.SQLite
 				{
 					var value = x.GetValue(item);
 					// Skip creating an SQLiteParameter if the value is null
-					if (value == null) return $"{x.Name} IS NULL";
+					if (value == null)
+						return $"{x.Name} IS NULL";
 
 					var paramName = $"@{i}_c{j}";
 					command.Parameters.Add(new SQLiteParameter(paramName, value));
@@ -323,14 +573,14 @@ namespace Database.SQLite
 				sb.Append(';');
 				++i;
 			}
+			command.CommandText = sb.ToString();
 			#endregion
 
 			// Execute the command and return the amount of affected rows
-			command.CommandText = sb.ToString();
 			return command.ExecuteNonQuery();
 		}
 
-		public void Dispose()
+		public virtual void Dispose()
 		{
 			Connection.Dispose();
 		}

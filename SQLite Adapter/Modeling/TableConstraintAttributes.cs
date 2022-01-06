@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace Database.SQLite.Modeling
 {
@@ -25,7 +25,6 @@ namespace Database.SQLite.Modeling
 	[AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
 	public class PrimaryAttribute : SQLiteTableConstraintAttribute
 	{
-		// TODO: Support compound primary keys (and maybe improve the way these attributes are parsed)
 		public override string Name { get; } = "PRIMARY KEY";
 	}
 
@@ -73,6 +72,29 @@ namespace Database.SQLite.Modeling
 	{
 		public override string Name { get; } = "UNIQUE";
 	}
+	
+	[AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
+	public class ForeignKeyAttribute : SQLiteTableConstraintAttribute
+	{
+		public override string Name { get; } = "FOREIGN KEY";
+
+		/// <summary>
+		/// Gets the type referenced by this foreign key constraint.
+		/// </summary>
+		public Type ReferenceType { get; }
+		
+		/// <summary>
+		/// Initializes a new instance of <see cref="ForeignKeyAttribute"/> with the specified
+		/// reference type.
+		/// </summary>
+		/// <param name="referenceType">The type whose table to reference.</param>
+		public ForeignKeyAttribute(Type referenceType)
+		{
+			ReferenceType = referenceType;
+		}
+	}
+
+
 
 	/// <summary>
 	/// Specifies that the table does not have a ROWID column. This class cannot be
@@ -80,6 +102,6 @@ namespace Database.SQLite.Modeling
 	/// </summary>
 	/// <seealso cref="https://www.sqlite.org/withoutrowid.html">Official
 	/// documentation</seealso>
-	[AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
+	[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
 	public class WithoutRowIdAttribute : Attribute { } // TODO: Improve???? See TODO in PrimaryAttribute
 }
